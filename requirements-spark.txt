@@ -1,0 +1,25 @@
+# ============================================================
+# requirements-spark.txt
+# 용도: Spark Streaming 실시간 집계 (Kafka Consumer -> PostgreSQL)
+# 가상환경: venv-spark (별도 권장)
+#
+# 주의:
+#   - PySpark는 로컬 JVM(Java 8/11/17)이 설치되어 있어야 동작한다.
+#   - Kafka 연동 시 pip 패키지만으로는 부족하고, spark-submit 실행 시
+#     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:<spark버전>
+#     옵션으로 Kafka 커넥터 jar를 함께 받아야 한다 (requirements.txt로 해결 안 됨).
+#
+# 설치:
+#   python3 -m venv venv-spark
+#   source venv-spark/bin/activate
+#   pip install -r requirements-spark.txt
+# ============================================================
+
+pyspark>=3.5
+py4j>=0.10.9          # pyspark가 의존, pyspark 설치 시 자동으로 같이 설치됨
+
+# PostgreSQL 적재 (JDBC 대신 Python에서 직접 적재할 경우)
+psycopg2-binary>=2.9
+sqlalchemy>=2.0
+
+python-dotenv>=1.0
