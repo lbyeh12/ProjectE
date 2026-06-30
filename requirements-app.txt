@@ -1,0 +1,43 @@
+# ============================================================
+# requirements-app.txt
+# 용도: 데이터 전처리, 사용자 행동 시뮬레이터, FastAPI 백엔드, Kafka Producer
+# 가상환경: venv-app (메인 개발용 가상환경)
+#
+# 설치:
+#   python3 -m venv venv-app
+#   source venv-app/bin/activate   (Windows: venv-app\Scripts\activate)
+#   pip install -r requirements-app.txt
+# ============================================================
+
+# --- 데이터 전처리 / 이벤트 합성 (preprocess.py) ---
+pandas>=2.2
+numpy>=1.26
+
+# --- FastAPI 백엔드 ---
+fastapi>=0.110
+uvicorn[standard]>=0.29      # ASGI 서버
+pydantic>=2.6                 # FastAPI 요청/응답 모델 검증
+python-multipart>=0.0.9       # 폼/파일 업로드 처리 시 필요
+
+# --- PostgreSQL 연동 ---
+sqlalchemy>=2.0
+psycopg2-binary>=2.9           # PostgreSQL 드라이버
+alembic>=1.13                  # DB 마이그레이션 (선택, 스키마 변경 관리 시 사용)
+
+# --- 인증 (로그인/회원가입 구현 시) ---
+python-jose[cryptography]>=3.3   # JWT 토큰
+passlib[bcrypt]>=1.7              # 비밀번호 해싱
+
+# --- Kafka Producer (FastAPI -> Kafka 전송용) ---
+kafka-python>=2.0.2
+# 또는 confluent-kafka>=2.3 (성능이 더 좋지만 librdkafka C 라이브러리 필요, 설치가 더 복잡함)
+
+# --- 사용자 행동 시뮬레이터 (simulator.py) ---
+requests>=2.31
+
+# --- 환경변수 관리 ---
+python-dotenv>=1.0
+
+# --- 개발/테스트 ---
+pytest>=8.0
+httpx>=0.27                    # FastAPI TestClient 비동기 호출용

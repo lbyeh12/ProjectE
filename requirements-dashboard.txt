@@ -1,0 +1,18 @@
+# ============================================================
+# requirements-dashboard.txt
+# 용도: Streamlit 실시간/배치 대시보드
+# 가상환경: venv-app에 같이 넣어도 무방 (의존성 가벼움)
+#
+# 설치:
+#   pip install -r requirements-dashboard.txt
+# ============================================================
+
+streamlit>=1.35
+pandas>=2.2
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+plotly>=5.20            # 인터랙티브 차트
+altair>=5.3              # streamlit 기본 차트용 (선택)
+
+# Superset을 쓸 경우는 pip 패키지가 아니라 별도 Docker 이미지(apache/superset)
+# 를 그대로 쓰는 게 일반적이라 requirements에는 포함하지 않음.
