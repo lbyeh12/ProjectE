@@ -17,6 +17,7 @@ numpy>=1.26
 fastapi>=0.110
 uvicorn[standard]>=0.29      # ASGI 서버
 pydantic>=2.6                 # FastAPI 요청/응답 모델 검증
+pydantic-settings>=2.2          # .env 기반 설정 관리 (app/config.py)
 python-multipart>=0.0.9       # 폼/파일 업로드 처리 시 필요
 
 # --- PostgreSQL 연동 ---
