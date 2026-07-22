@@ -1,0 +1,95 @@
+# ============================================================
+# docker-compose.yml
+# 개발용 인프라: PostgreSQL + Kafka(KRaft 모드) + Kafka UI
+#
+# Zookeeper 없이 KRaft 모드로 Kafka를 단일 노드로 실행한다.
+# (Kafka 3.3+ 부터 지원, 최신 트렌드)
+#
+# 사용:
+#   docker compose up -d          # 백그라운드 실행
+#   docker compose ps             # 상태 확인
+#   docker compose logs -f kafka  # 로그 확인
+#   docker compose down           # 중지 (데이터 유지)
+#   docker compose down -v        # 중지 + 데이터 볼륨 삭제
+# ============================================================
+
+services:
+  # --------------------------------------------------------
+  # PostgreSQL - 이벤트/집계 데이터 저장소
+  # --------------------------------------------------------
+  postgres:
+    image: postgres:16
+    container_name: projecte-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: projecte
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d projecte"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --------------------------------------------------------
+  # Kafka - KRaft 모드 (단일 노드, broker + controller 겸용)
+  # --------------------------------------------------------
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: projecte-kafka
+    ports:
+      # 9092: 호스트(로컬 FastAPI/시뮬레이터)에서 접속하는 포트
+      - "9092:9092"
+    environment:
+      # --- KRaft 필수 설정 ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # --- 리스너 설정 ---
+      # PLAINTEXT: 컨테이너 내부/다른 컨테이너용 (kafka:29092)
+      # PLAINTEXT_HOST: 호스트(로컬 PC)에서 접속용 (localhost:9092)
+      KAFKA_LISTENERS: "PLAINTEXT://:29092,CONTROLLER://:9093,PLAINTEXT_HOST://:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # --- 단일 노드용 설정 (복제 계수 1) ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # 없는 토픽으로 send 하면 자동 생성 (개발 편의)
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # --------------------------------------------------------
+  # Kafka UI - 브라우저에서 토픽/메시지 확인 (localhost:8080)
+  # 개발 편의용. 없어도 파이프라인은 동작함.
+  # (provectuslabs/kafka-ui 는 아카이브되어, 이어받은 kafbat 포크 사용)
+  # --------------------------------------------------------
+  kafka-ui:
+    image: kafbat/kafka-ui:latest
+    container_name: projecte-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: projecte
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      - kafka
+
+volumes:
+  postgres-data:
+  kafka-data:
