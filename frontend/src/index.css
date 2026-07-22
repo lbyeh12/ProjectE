@@ -1,0 +1,223 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --ink: #1a1a1a;
+  --ink-soft: #6b6b6b;
+  --line: #e4e4e1;
+  --accent: #2d5a4a;
+  --accent-soft: #eaf1ee;
+  --danger: #b23b3b;
+  --radius: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- 레이아웃 --- */
+.header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.9rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.logo {
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  font-size: 0.9rem;
+}
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+/* --- 검색 --- */
+.search-bar {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.6rem;
+}
+.search-bar input {
+  flex: 1;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+}
+.btn {
+  padding: 0.6rem 1.1rem;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+.btn-ghost {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  padding: 0.3rem 0.5rem;
+}
+
+/* --- 상품 그리드 --- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: border-color 0.15s;
+}
+.card:hover {
+  border-color: var(--accent);
+}
+.card-title {
+  font-size: 0.92rem;
+  font-weight: 500;
+  min-height: 2.6em;
+}
+.card-code {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+.card-price {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-top: auto;
+}
+.card-meta {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+/* --- 상세 --- */
+.detail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2rem;
+  max-width: 560px;
+}
+.detail h1 {
+  font-size: 1.4rem;
+  margin-bottom: 0.4rem;
+}
+.detail .price {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 1rem 0;
+}
+
+/* --- 장바구니 --- */
+.cart-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 0.6rem;
+}
+.cart-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.4rem;
+  padding-top: 1.4rem;
+  border-top: 2px solid var(--line);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+/* --- 상태 표시 --- */
+.muted {
+  color: var(--ink-soft);
+}
+.empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--ink-soft);
+}
+.badge {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.72rem;
+  margin-left: 0.3rem;
+}
+.login-box {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2rem;
+  max-width: 380px;
+  margin: 2rem auto;
+}
+.login-box input {
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin: 0.8rem 0;
+  font-size: 0.95rem;
+}
+.login-box .btn {
+  width: 100%;
+}
