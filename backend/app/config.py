@@ -18,5 +18,15 @@ class Settings(BaseSettings):
     # 환경 구분 (local / docker / production)
     env: str = "local"
 
+    # --- Kafka 설정 ---
+    # 로컬에서 FastAPI를 실행하므로 localhost:9092 (docker-compose의 PLAINTEXT_HOST)
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_events_topic: str = "user-events"
+
+    # 이벤트를 Kafka로 보낼지 여부.
+    # False로 두면 (Kafka가 아직 없거나 끌 때) PostgreSQL에 직접 저장하는
+    # 예전 방식으로 폴백한다. 개발/디버깅 편의를 위한 스위치.
+    use_kafka: bool = True
+
 
 settings = Settings()

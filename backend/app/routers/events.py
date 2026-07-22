@@ -15,18 +15,44 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CartItem, RawEvent, User
 from app.schemas import EventIn, EventOut, PurchaseRequest, PurchaseResult
+from app import kafka_producer
 
 router = APIRouter(tags=["events"])
 
 
 @router.post("/events", response_model=EventOut)
 def log_event(event: EventIn, db: Session = Depends(get_db)):
+    ts = event.timestamp or datetime.utcnow()
+    payload = {
+        "user_id": event.user_id,
+        "event_type": event.event_type,
+        "product_id": event.product_id,
+        "price": event.price,
+        "timestamp": ts,
+    }
+
+    if kafka_producer.is_enabled():
+        # 이벤트를 Kafka로 전송한다. 실제 PostgreSQL 저장은
+        # 다음 단계의 Spark Streaming(Consumer)이 담당한다.
+        kafka_producer.send_event(payload)
+        # Kafka 경로에서는 DB에 저장하지 않으므로 id는 아직 없다.
+        # 응답 스키마를 맞추기 위해 임시 id(0)로 에코한다.
+        return EventOut(
+            id=0,
+            user_id=event.user_id,
+            event_type=event.event_type,
+            product_id=event.product_id,
+            price=event.price,
+            timestamp=ts,
+        )
+
+    # 폴백: use_kafka=False 이면 예전처럼 PostgreSQL에 직접 저장
     new_event = RawEvent(
         user_id=event.user_id,
         event_type=event.event_type,
         product_id=event.product_id,
         price=event.price,
-        timestamp=event.timestamp or datetime.utcnow(),
+        timestamp=ts,
     )
     db.add(new_event)
     db.commit()
