@@ -2,10 +2,12 @@
 행동 이벤트 로깅 + 구매(체크아웃) API.
 
 - POST /events   : view/search/add_to_cart 등 단일 이벤트 기록
-                    (지금은 PostgreSQL에 직접 INSERT. 나중에 Kafka Producer로
-                     내부 구현만 교체하면 되도록 트래킹 스키마를 그대로 따른다.)
 - POST /purchase : 장바구니에 담긴 항목을 구매로 확정하고,
-                    각 항목마다 purchase 이벤트를 raw_events에 기록한 뒤 장바구니를 비운다.
+                    각 항목마다 purchase 이벤트를 기록한 뒤 장바구니를 비운다.
+
+두 엔드포인트 모두 이벤트를 Kafka(user-events 토픽)로 전송한다.
+use_kafka=False 인 경우에만 PostgreSQL에 직접 저장하는 방식으로 폴백한다.
+실제 이벤트의 영속 저장은 다음 단계의 Spark Streaming(Consumer)이 담당한다.
 """
 from datetime import datetime
 
@@ -73,23 +75,32 @@ def checkout(req: PurchaseRequest, db: Session = Depends(get_db)):
     total_price = 0.0
     now = datetime.utcnow()
 
+    # 구매 확정 시 각 상품에 대해 purchase 이벤트를 생성한다.
+    # view/add_to_cart 와 동일하게 Kafka(user-events 토픽)로 전송하여
+    # 모든 이벤트가 하나의 경로로 흐르도록 한다. 실제 PostgreSQL 저장은
+    # 다음 단계의 Spark Streaming(Consumer)이 담당한다.
     for item in cart_items:
         price = item.product.price
         total_price += price * item.quantity
 
         # 수량만큼 purchase 이벤트를 각각 기록 (이벤트 스키마는 단일 상품 단위)
         for _ in range(item.quantity):
-            db.add(RawEvent(
-                user_id=req.user_id,
-                event_type="purchase",
-                product_id=item.product_id,
-                price=price,
-                timestamp=now,
-            ))
+            payload = {
+                "user_id": req.user_id,
+                "event_type": "purchase",
+                "product_id": item.product_id,
+                "price": price,
+                "timestamp": now,
+            }
+            if kafka_producer.is_enabled():
+                kafka_producer.send_event(payload)
+            else:
+                # 폴백: use_kafka=False 이면 예전처럼 PostgreSQL에 직접 저장
+                db.add(RawEvent(**payload))
 
     purchased_count = len(cart_items)
 
-    # 장바구니 비우기
+    # 장바구니 비우기 (이건 애플리케이션 상태라 항상 DB에서 처리)
     for item in cart_items:
         db.delete(item)
 
