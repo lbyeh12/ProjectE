@@ -28,6 +28,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # 컨테이너 최초 기동 시 airflow 메타데이터용 DB를 자동 생성
+      - ./airflow/init-airflow-db.sql:/docker-entrypoint-initdb.d/init-airflow-db.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d projecte"]
       interval: 10s
@@ -89,6 +91,100 @@ services:
       DYNAMIC_CONFIG_ENABLED: "true"
     depends_on:
       - kafka
+
+  # ========================================================
+  # Airflow (배치 ETL) — LocalExecutor, 단일 노드 경량 구성
+  #
+  # - 메타데이터 DB: 기존 postgres 컨테이너 안에 별도 DB(airflow) 사용
+  #   (postgres 컨테이너 최초 기동 시 아래 init 스크립트가 airflow DB 생성)
+  # - DAG은 raw_events 가 있는 애플리케이션 DB(projecte)에 붙어서 집계
+  #   → AIRFLOW_CONN_PROJECTE_DB 커넥션으로 연결
+  # ========================================================
+  airflow-init:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: projecte-airflow:3.3.0
+    container_name: projecte-airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &airflow-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      # Airflow 3.x 는 SimpleAuthManager 가 기본값이므로 auth_manager를 따로 지정하지 않는다.
+      # Airflow 3.x: 워커가 태스크 실행 시 api-server에 HTTP로 접속한다.
+      # 기본값(localhost)은 컨테이너 자신을 가리켜 접속 실패하므로, api-server 컨테이너 주소를 명시.
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+      # Airflow 3.x: 워커-apiserver 간 JWT 토큰 서명에 쓰는 공유 비밀 키.
+      # 지정하지 않으면 각 컨테이너가 랜덤 키를 만들어 "Invalid auth token" 에러 발생.
+      # (개발용 고정값. 운영에서는 안전한 랜덤 값을 시크릿으로 주입)
+      AIRFLOW__API_AUTH__JWT_SECRET: "projecte-dev-jwt-secret-please-change-in-prod-0123456789abcdef"
+      # DAG이 raw_events를 읽기 위한 애플리케이션 DB 커넥션 (projecte_db)
+      AIRFLOW_CONN_PROJECTE_DB: postgresql://postgres:postgres@postgres:5432/projecte
+      # Airflow 3.x SimpleAuthManager 로그인 계정
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    # DB 마이그레이션만 수행 후 종료 (1회성). 계정은 SimpleAuthManager가 환경변수로 관리.
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - "airflow db migrate"
+
+  airflow-apiserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: projecte-airflow:3.3.0
+    container_name: projecte-airflow-apiserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    ports:
+      - "8081:8080"        # Airflow 웹 UI (Kafka UI가 8080이라 8081로)
+    command: api-server
+    restart: unless-stopped
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: projecte-airflow:3.3.0
+    container_name: projecte-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    command: scheduler
+    restart: unless-stopped
+
+  # Airflow 3.x: DAG 파싱을 담당하는 별도 컴포넌트
+  airflow-dag-processor:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: projecte-airflow:3.3.0
+    container_name: projecte-airflow-dag-processor
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    command: dag-processor
+    restart: unless-stopped
 
 volumes:
   postgres-data:
