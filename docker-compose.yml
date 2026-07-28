@@ -126,9 +126,12 @@ services:
       AIRFLOW_CONN_PROJECTE_DB: postgresql://postgres:postgres@postgres:5432/projecte
       # Airflow 3.x SimpleAuthManager 로그인 계정
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
+      # 비밀번호를 고정하기 위해 미리 만든 파일 지정 (매번 랜덤 생성 방지)
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     # DB 마이그레이션만 수행 후 종료 (1회성). 계정은 SimpleAuthManager가 환경변수로 관리.
     entrypoint: /bin/bash
     command:
@@ -136,9 +139,6 @@ services:
       - "airflow db migrate"
 
   airflow-apiserver:
-    build:
-      context: ./airflow
-      dockerfile: Dockerfile
     image: projecte-airflow:3.3.0
     container_name: projecte-airflow-apiserver
     depends_on:
@@ -148,15 +148,13 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     ports:
       - "8081:8080"        # Airflow 웹 UI (Kafka UI가 8080이라 8081로)
     command: api-server
     restart: unless-stopped
 
   airflow-scheduler:
-    build:
-      context: ./airflow
-      dockerfile: Dockerfile
     image: projecte-airflow:3.3.0
     container_name: projecte-airflow-scheduler
     depends_on:
@@ -166,14 +164,12 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     command: scheduler
     restart: unless-stopped
 
   # Airflow 3.x: DAG 파싱을 담당하는 별도 컴포넌트
   airflow-dag-processor:
-    build:
-      context: ./airflow
-      dockerfile: Dockerfile
     image: projecte-airflow:3.3.0
     container_name: projecte-airflow-dag-processor
     depends_on:
@@ -183,6 +179,7 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     command: dag-processor
     restart: unless-stopped
 
