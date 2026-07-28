@@ -44,7 +44,10 @@ PG_USER = os.getenv("PG_USER", "postgres")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "postgres")
 
 # 체크포인트: 스트림이 어디까지 읽었는지 저장 (재시작 시 이어서 처리)
-CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", "/tmp/projecte-spark-checkpoints")
+# /tmp 대신 프로젝트 안에 둬서, 예기치 않게 사라지거나 재부팅 시 비워지는 걸 방지한다.
+# (단, Kafka 데이터를 초기화한 경우 이 폴더도 함께 지워야 offset 불일치 에러가 안 남
+#  -> spark/reset_checkpoints.sh 참고)
+CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", os.path.join(os.path.dirname(__file__), ".checkpoints"))
 
 # --- 이벤트 JSON 스키마 (FastAPI가 보내는 것과 동일) ---
 EVENT_SCHEMA = StructType([

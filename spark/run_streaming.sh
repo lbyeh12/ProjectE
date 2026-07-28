@@ -13,6 +13,10 @@
 #
 # 사용:
 #   bash spark/run_streaming.sh
+#
+# Kafka 볼륨을 지웠다(docker compose down -v) 실행하면 "Partitions ... have
+# been deleted" 에러가 날 수 있다. 이때는 먼저 아래를 실행:
+#   bash spark/reset_checkpoints.sh
 # ============================================================
 set -e
 
