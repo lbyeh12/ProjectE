@@ -8,15 +8,14 @@
 # 데이터 (원본 CSV + 전처리/합성 결과물)
 # 용량이 크고(events.csv 약 233MB), 실제 고객 데이터(CustomerID, 거래내역)가
 # 포함되어 있어 공개 저장소에는 올리지 않는다.
+# data/preprocess.py(전처리 코드)는 추적하되, data/dataset/ 안의 CSV들만 제외한다.
 # 필요 시 README에 다운로드 경로/재생성 방법만 안내한다.
 # --------------------------------------------------------------
-ecommerce_data.csv
+data/dataset/
 *.csv
-dataset
-
 # 참고: gitignore는 상위 디렉토리가 제외되면 그 안의 파일을 다시 포함시킬 수 없다.
-# 샘플 데이터를 예시로 공개하고 싶다면 위 패턴에 걸리지 않는 별도 경로
-# (예: docs/sample-data/) 에 두는 것을 권장한다.
+# data/ 전체를 ignore하면 data/preprocess.py도 같이 묻히므로, 데이터 폴더는
+# data/dataset/ 처럼 한 단계 더 들어간 경로 단위로 ignore해야 한다.
 
 # --------------------------------------------------------------
 # 비밀정보 / 환경변수
@@ -74,6 +73,9 @@ airflow/logs/
 airflow/airflow.db
 airflow/airflow.cfg
 airflow/webserver_config.py
+# SimpleAuthManager 로그인 비밀번호 파일 (실제 비밀번호 포함, 저장소에 올리지 않음)
+airflow/simple_auth_manager_passwords.json
+airflow/simple_auth_manager_passwords.json.generated
 
 # --------------------------------------------------------------
 # Spark
