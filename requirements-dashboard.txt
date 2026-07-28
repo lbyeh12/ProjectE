@@ -7,7 +7,7 @@
 #   pip install -r requirements-dashboard.txt
 # ============================================================
 
-streamlit>=1.35
+streamlit>=1.50           # st.dataframe(width="stretch") 및 st.fragment 지원 버전
 pandas>=2.2
 sqlalchemy>=2.0
 psycopg2-binary>=2.9
