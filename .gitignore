@@ -83,6 +83,7 @@ airflow/simple_auth_manager_passwords.json.generated
 spark-warehouse/
 metastore_db/
 derby.log
+spark/.checkpoints/
 
 # --------------------------------------------------------------
 # Kubernetes (로컬 전용 설정, 시크릿이 들어간 manifest)

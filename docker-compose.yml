@@ -183,6 +183,67 @@ services:
     command: dag-processor
     restart: unless-stopped
 
+  # ========================================================
+  # 애플리케이션 서비스 (backend / frontend / dashboard)
+  # 개발 편의를 위해 코드는 볼륨 마운트로 제공한다 (수정 시 재빌드 불필요).
+  # Spark는 Java/리소스 설정이 까다로워 컨테이너화하지 않고 로컬에서 실행한다.
+  # ========================================================
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: projecte-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # 컨테이너 안에서는 localhost가 아니라 서비스 이름으로 접속한다.
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/projecte
+      FRONTEND_ORIGIN: http://localhost:5173
+      ENV: docker
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_EVENTS_TOPIC: user-events
+      USE_KAFKA: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: projecte-frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # 호스트의 node_modules로 덮어써지지 않도록 보호
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: projecte-dashboard
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DASHBOARD_DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/projecte
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./dashboard:/app
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:

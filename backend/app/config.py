@@ -1,6 +1,9 @@
 """
 앱 전역 설정.
-.env 파일에서 값을 읽어온다 (pydantic-settings 사용).
+
+로컬 실행: backend/.env 파일에서 값을 읽는다 (.env.example 참고).
+Docker 실행: docker-compose.yml 의 environment 로 주입된 값을 그대로 읽는다.
+             (.env 파일이 없어도 pydantic-settings 가 환경변수를 그대로 사용하므로 문제없다)
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
