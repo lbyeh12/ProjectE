@@ -206,6 +206,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_EVENTS_TOPIC: user-events
       USE_KAFKA: "true"
+      # 개발용 고정값. 운영 배포 시 반드시 강력한 랜덤 값으로 교체할 것.
+      JWT_SECRET_KEY: dev-only-secret-change-me-0123456789abcdef
     ports:
       - "8000:8000"
     volumes:

@@ -15,34 +15,27 @@ export async function fetchProduct(productId: string): Promise<Product> {
   return res.data;
 }
 
-export async function addToCart(
-  userId: number,
-  productId: string,
-  quantity = 1
-): Promise<CartItem> {
+// user_id는 더 이상 클라이언트가 지정하지 않는다. 로그인 토큰으로 서버가 식별한다.
+// (로그인 안 된 상태로 호출하면 백엔드가 401을 응답한다)
+
+export async function addToCart(productId: string, quantity = 1): Promise<CartItem> {
   const res = await apiClient.post<CartItem>("/cart", {
-    user_id: userId,
     product_id: productId,
     quantity,
   });
   return res.data;
 }
 
-export async function fetchCart(userId: number): Promise<CartItem[]> {
-  const res = await apiClient.get<CartItem[]>(`/cart/${userId}`);
+export async function fetchCart(): Promise<CartItem[]> {
+  const res = await apiClient.get<CartItem[]>("/cart");
   return res.data;
 }
 
-export async function removeFromCart(
-  userId: number,
-  productId: string
-): Promise<void> {
-  await apiClient.delete(`/cart/${userId}/${productId}`);
+export async function removeFromCart(productId: string): Promise<void> {
+  await apiClient.delete(`/cart/${productId}`);
 }
 
-export async function checkout(userId: number): Promise<PurchaseResult> {
-  const res = await apiClient.post<PurchaseResult>("/purchase", {
-    user_id: userId,
-  });
+export async function checkout(): Promise<PurchaseResult> {
+  const res = await apiClient.post<PurchaseResult>("/purchase");
   return res.data;
 }

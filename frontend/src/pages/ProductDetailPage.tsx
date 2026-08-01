@@ -35,7 +35,7 @@ export function ProductDetailPage() {
     if (!product) return;
 
     try {
-      await addToCart(userId, product.product_id);
+      await addToCart(product.product_id);
       trackEvent("add_to_cart", {
         product_id: product.product_id,
         price: product.price,

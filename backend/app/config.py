@@ -31,5 +31,12 @@ class Settings(BaseSettings):
     # 예전 방식으로 폴백한다. 개발/디버깅 편의를 위한 스위치.
     use_kafka: bool = True
 
+    # --- JWT 인증 설정 ---
+    # 운영 배포 시에는 반드시 .env / 환경변수로 강력한 랜덤 값을 주입해야 한다.
+    # (이 기본값은 로컬 개발 편의용이며 저장소에 그대로 커밋되어 있으므로 안전하지 않다)
+    jwt_secret_key: str = "dev-only-secret-change-me-0123456789abcdef"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24  # 24시간
+
 
 settings = Settings()

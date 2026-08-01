@@ -32,6 +32,9 @@ class User(Base):
     country = Column(String, nullable=True)
     first_purchase_at = Column(DateTime, nullable=True)
     last_purchase_at = Column(DateTime, nullable=True)
+    # 인증용. data/preprocess.py 로 적재된 기존 유저는 비밀번호가 없는 상태(NULL)로
+    # 시작하며, /auth/signup 으로 비밀번호를 설정해야 로그인할 수 있다.
+    hashed_password = Column(String, nullable=True)
 
     cart_items = relationship("CartItem", back_populates="user")
 

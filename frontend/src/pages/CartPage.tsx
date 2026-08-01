@@ -12,7 +12,7 @@ export function CartPage() {
 
   const { data: cartItems, isLoading } = useQuery({
     queryKey: ["cart", userId],
-    queryFn: () => fetchCart(userId!),
+    queryFn: () => fetchCart(),
     enabled: !!userId,
   });
 
@@ -55,14 +55,14 @@ export function CartPage() {
   }, 0);
 
   const handleRemove = async (item: CartItem) => {
-    await removeFromCart(userId, item.product_id);
+    await removeFromCart(item.product_id);
     queryClient.invalidateQueries({ queryKey: ["cart", userId] });
   };
 
   const handleCheckout = async () => {
     if (items.length === 0) return;
     try {
-      const result = await checkout(userId);
+      const result = await checkout();
       // 구매 완료 이벤트는 백엔드 /purchase 가 각 상품별로 이미 기록하므로
       // 여기서는 중복 기록하지 않는다.
       alert(`구매 완료! ${result.purchased_items}종 / £${result.total_price.toFixed(2)}`);
