@@ -13,7 +13,10 @@ COPY requirements-app.txt .
 RUN pip install --no-cache-dir -r requirements-app.txt
 
 # 코드는 볼륨 마운트로 제공되므로 COPY는 생략 (docker-compose volumes 참고)
+# 단, entrypoint.sh 는 볼륨 마운트로도 덮어써지므로 실행권한만 별도로 부여해둔다.
+COPY backend/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+ENTRYPOINT ["/entrypoint.sh"]

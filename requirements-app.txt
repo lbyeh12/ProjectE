@@ -23,11 +23,14 @@ python-multipart>=0.0.9       # 폼/파일 업로드 처리 시 필요
 # --- PostgreSQL 연동 ---
 sqlalchemy>=2.0
 psycopg2-binary>=2.9           # PostgreSQL 드라이버
-alembic>=1.13                  # DB 마이그레이션 (선택, 스키마 변경 관리 시 사용)
+alembic>=1.13                  # DB 마이그레이션 (스키마 변경 이력 관리)
 
 # --- 인증 (로그인/회원가입 구현 시) ---
 python-jose[cryptography]>=3.3   # JWT 토큰
 passlib[bcrypt]>=1.7              # 비밀번호 해싱
+bcrypt==4.0.1                       # passlib 1.7.4와의 호환성 문제로 버전 고정
+                                     # (bcrypt>=4.1 에서 "password cannot be longer
+                                     #  than 72 bytes" 초기화 에러 발생)
 
 # --- Kafka Producer (FastAPI -> Kafka 전송용) ---
 kafka-python>=2.0.2

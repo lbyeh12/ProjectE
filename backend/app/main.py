@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import Base, engine
+from app.database import engine  # noqa: F401  (다른 모듈이 import 하는 경우가 있어 유지)
 from app.routers import auth, cart, events, products
 from app import kafka_producer
 
@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ProjectE API", version="0.1.0", lifespan=lifespan)
 
-# 개발 단계에서는 Alembic 마이그레이션 대신 시작 시 테이블을 바로 생성한다.
-# (운영 단계로 가면 Alembic으로 교체)
-Base.metadata.create_all(bind=engine)
+# 테이블 생성/변경은 Alembic이 전담한다 (Base.metadata.create_all 은 더 이상 쓰지 않음).
+# 로컬 실행: alembic upgrade head 를 uvicorn 실행 전에 한 번 실행.
+# Docker 실행: backend/entrypoint.sh 가 컨테이너 시작 시 자동으로 실행.
 
 app.add_middleware(
     CORSMiddleware,
