@@ -1,0 +1,60 @@
+name: Backend CI
+
+# main 브랜치로 향하는 PR, 그리고 main에 직접 push될 때 실행.
+# backend나 requirements-app.txt 가 바뀌지 않은 PR에서는 굳이 안 돌게 경로를 제한.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "requirements-app.txt"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "requirements-app.txt"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # 테스트가 실제로 접속할 PostgreSQL을 GitHub Actions가 컨테이너로 띄워준다.
+    # 로컬에서 docker compose로 postgres를 띄우는 것과 같은 역할을,
+    # CI 환경에서는 이 services 블록이 대신한다.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: projecte_test
+        ports:
+          - 5432:5432
+        # 컨테이너가 뜨긴 했어도 PostgreSQL이 연결을 받을 준비가 될 때까지 대기
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 의존성 설치
+        run: pip install -r requirements-app.txt
+
+      - name: pytest 실행
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/projecte_test
+          USE_KAFKA: "false"
+          JWT_SECRET_KEY: ci-test-secret-key
+        run: pytest
