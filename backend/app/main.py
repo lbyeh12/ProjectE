@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
 from app.database import engine  # noqa: F401  (다른 모듈이 import 하는 경우가 있어 유지)
@@ -42,6 +43,10 @@ app.include_router(auth.router)
 app.include_router(products.router)
 app.include_router(cart.router)
 app.include_router(events.router)
+
+# 요청 수 / 응답시간(p50·p95·p99) / 에러율을 /metrics 로 노출한다.
+# Prometheus가 이 엔드포인트를 주기적으로 스크랩해간다 (adrs/0001 참고).
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/health")

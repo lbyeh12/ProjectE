@@ -45,3 +45,6 @@ python-dotenv>=1.0
 # --- 개발/테스트 ---
 pytest>=8.0
 httpx>=0.27                    # FastAPI TestClient 비동기 호출용
+
+# --- 모니터링 (adrs/0001-monitoring-tool-selection.md) ---
+prometheus-fastapi-instrumentator>=7.0    # FastAPI 요청 지표를 /metrics 로 노출

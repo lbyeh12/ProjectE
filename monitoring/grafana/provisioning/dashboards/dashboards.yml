@@ -1,0 +1,14 @@
+# monitoring/grafana/provisioning/dashboards/dashboards.yml
+#
+# ./monitoring/grafana/dashboards/ 폴더에 있는 대시보드 JSON을 자동으로 불러온다.
+apiVersion: 1
+
+providers:
+  - name: "ProjectE"
+    orgId: 1
+    folder: "ProjectE"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
