@@ -1,0 +1,13 @@
+# monitoring/grafana/provisioning/datasources/datasource.yml
+#
+# Grafana 컨테이너가 뜰 때 이 파일을 읽어서 Prometheus를 자동으로 데이터소스로
+# 등록한다. 매번 UI에서 수동으로 등록하지 않아도 되게 하려는 것.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

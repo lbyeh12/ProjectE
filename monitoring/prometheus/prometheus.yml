@@ -1,0 +1,26 @@
+# monitoring/prometheus/prometheus.yml
+#
+# adrs/0001-monitoring-tool-selection.md 에서 정한 수집 대상:
+#   - FastAPI (요청 수/응답시간/에러율)
+#   - PostgreSQL (커넥션/커밋 상태) via postgres_exporter
+#   - Kafka (consumer lag) via kafka_exporter
+global:
+  scrape_interval: 5s # 부하 테스트처럼 짧은 시간에 변화가 큰 상황을 보려고 기본값(15s)보다 짧게
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "fastapi-backend"
+    static_configs:
+      - targets: ["backend:8000"]
+    metrics_path: /metrics
+
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: "kafka"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
