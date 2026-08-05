@@ -246,6 +246,64 @@ services:
       - ./dashboard:/app
     restart: unless-stopped
 
+  # ========================================================
+  # 모니터링 (adrs/0001-monitoring-tool-selection.md)
+  # ========================================================
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: projecte-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: projecte-grafana
+    depends_on:
+      - prometheus
+    environment:
+      # 개발용 고정 계정. 운영 배포 시 반드시 교체.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # provisioning 파일 변경만으로 재시작 없이 반영되도록
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: projecte-postgres-exporter
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/projecte?sslmode=disable"
+    ports:
+      - "9187:9187"
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.7.0
+    container_name: projecte-kafka-exporter
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - "--kafka.server=kafka:29092"
+    ports:
+      - "9308:9308"
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
+  prometheus-data:
+  grafana-data:
