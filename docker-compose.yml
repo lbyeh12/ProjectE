@@ -24,6 +24,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: projecte
+    # backend 의 커넥션 풀(pool_size 20 + max_overflow 30 = 최대 50)에
+    # Airflow, postgres-exporter 등 다른 서비스 커넥션까지 더해 기본값(100)
+    # 만으로도 여유는 있지만, 명시적으로 올려서 향후 확장에도 대비한다.
+    # (docs/perf/002-stress-test.md 에서 발견한 커넥션 풀 고갈 대응)
+    command: ["postgres", "-c", "max_connections=200"]
     ports:
       - "5432:5432"
     volumes:
@@ -208,6 +213,10 @@ services:
       USE_KAFKA: "true"
       # 개발용 고정값. 운영 배포 시 반드시 강력한 랜덤 값으로 교체할 것.
       JWT_SECRET_KEY: dev-only-secret-change-me-0123456789abcdef
+      # 기본은 개발 모드(워커 1개, --reload). 부하 테스트 시에는
+      #   WORKERS=4 docker compose up -d --force-recreate backend
+      # 처럼 오버라이드해서 재시작한다 (docs/perf/002-stress-test.md 참고).
+      WORKERS: "${WORKERS:-1}"
     ports:
       - "8000:8000"
     volumes:
