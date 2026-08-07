@@ -12,6 +12,9 @@ export { browse } from "./scenarios/browse.js";
 export { purchaseFlow } from "./scenarios/purchase_flow.js";
 
 export const options = {
+  // 300명 회원가입을 순차 처리해야 해서 시간이 꽤 걸린다 (bcrypt 해싱 포함).
+  // 넉넉하게 잡는다.
+  setupTimeout: "300s",
   scenarios: {
     browse_traffic: {
       executor: "ramping-vus",
@@ -46,5 +49,10 @@ export const options = {
 };
 
 export function setup() {
-  return { users: prepareTestUsers(150) };
+  // purchase_traffic 최대 VU(150)의 2배로 계정을 준비해서, 서로 다른
+  // iteration이 같은 계정을 동시에 쓸 확률을 낮춘다 (완전히 0으로
+  //만들지는 않음 — 실제 서비스에서도 계정 충돌은 낮은 확률로 있을 수
+  // 있는 정상적인 엣지 케이스이므로, 노이즈를 "충분히 낮추는" 것을
+  // 목표로 한다. docs/perf/001-baseline.md 참고).
+  return { users: prepareTestUsers(300) };
 }

@@ -39,14 +39,24 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.user_id == req.user_id).first()
 
+    # perf 002에서 발견된 문제 해결. autocommit=False 로 되어있어 명시적으로 트랜잭션 종료
+    # expire_on_commit=True 때문에 orm객체가 만료. 때문에 객체에 미리 값 저장 후 이를 사용
+
+    user_exists = user is not None
+    hashed_password = user.hashed_password if user_exists else None
+    user_id = user.user_id if user_exists else None
+    db.commit()  
+
+    password_ok = hashed_password is not None and verify_password(req.password, hashed_password)
+ 
     # 사용자가 없거나 비밀번호가 틀린 경우를 구분해서 알려주지 않는다.
     # (계정 존재 여부를 노출하지 않는 것이 일반적인 보안 관례)
-    if not user or not user.hashed_password or not verify_password(req.password, user.hashed_password):
+    if not user_exists or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="user_id 또는 비밀번호가 올바르지 않습니다.",
         )
-
+    
     access_token = create_access_token(user_id=user.user_id)
     return TokenOut(access_token=access_token)
 
