@@ -58,7 +58,7 @@ export function ProductDetailPage() {
       <div className="detail">
         <div className="card-code">{product.product_id}</div>
         <h1>{product.description}</h1>
-        <div className="price">£{product.price.toFixed(2)}</div>
+        <div className="price">₩{product.price.toLocaleString("ko-KR")}</div>
         <p className="muted">지금까지 {product.total_purchase_count.toLocaleString()}회 구매되었습니다.</p>
         <button className="btn" onClick={handleAddToCart} style={{ marginTop: "1.4rem", padding: "0.7rem 1.4rem" }}>
           장바구니에 담기

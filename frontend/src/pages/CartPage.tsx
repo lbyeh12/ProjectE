@@ -65,7 +65,7 @@ export function CartPage() {
       const result = await checkout();
       // 구매 완료 이벤트는 백엔드 /purchase 가 각 상품별로 이미 기록하므로
       // 여기서는 중복 기록하지 않는다.
-      alert(`구매 완료! ${result.purchased_items}종 / £${result.total_price.toFixed(2)}`);
+      alert(`구매 완료! ${result.purchased_items}종 / ₩${result.total_price.toLocaleString("ko-KR")}`);
       queryClient.invalidateQueries({ queryKey: ["cart", userId] });
       navigate("/");
     } catch {
@@ -93,7 +93,7 @@ export function CartPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
                   <span style={{ fontWeight: 700 }}>
-                    £{((product?.price ?? 0) * item.quantity).toFixed(2)}
+                    ₩{((product?.price ?? 0) * item.quantity).toLocaleString("ko-KR")}
                   </span>
                   <button className="btn-danger" onClick={() => handleRemove(item)}>
                     삭제
@@ -105,7 +105,7 @@ export function CartPage() {
 
           <div className="cart-total">
             <span>합계</span>
-            <span>£{total.toFixed(2)}</span>
+            <span>₩{total.toLocaleString("ko-KR")}</span>
           </div>
 
           <button

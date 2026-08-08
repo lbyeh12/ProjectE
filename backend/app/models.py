@@ -10,7 +10,7 @@ ORM 모델.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -18,11 +18,20 @@ from app.database import Base
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        # 재고가 음수로 내려가는 걸 애플리케이션 로직(비관적 락)으로
+        # 막고 있지만, DB 레벨에도 이중 방어를 걸어둔다. 코드에 버그가
+        # 있어도 DB가 마지막 방어선이 되어준다 (adrs/0004 참고).
+        CheckConstraint("stock >= 0", name="ck_products_stock_non_negative"),
+    )
 
     product_id = Column(String, primary_key=True)        # StockCode
     description = Column(String, nullable=False)
     price = Column(Float, nullable=False)
     total_purchase_count = Column(Integer, default=0)
+    # 재고 수량. 데이터셋에는 원래 없던 개념이라 전처리 단계에서
+    # 임의로 채워 넣는다 (adrs/0004-inventory-concurrency-control.md).
+    stock = Column(Integer, nullable=False, default=0)
 
 
 class User(Base):

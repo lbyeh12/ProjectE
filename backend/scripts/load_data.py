@@ -33,6 +33,12 @@ def load_products(db, dataset_dir: Path):
     for _, row in df.iterrows():
         existing = db.query(Product).filter(Product.product_id == row["product_id"]).first()
         if existing:
+            # 주의: stock은 여기서 갱신하지 않는다. 이 스크립트를 운영 중에
+            # 다시 돌리면(예: 상품 설명/가격만 업데이트하려고), CSV의 초기
+            # 재고값으로 실제 판매 중인 재고를 덮어써버리는 사고가 날 수
+            # 있다 (adrs/0004-inventory-concurrency-control.md). 재고는
+            # 신규 상품에 대해서만 초기값을 채우고, 이후 변경은 오직
+            # 구매 로직(비관적 락)을 통해서만 이루어져야 한다.
             existing.description = row["description"]
             existing.price = row["price"]
             existing.total_purchase_count = row["total_purchase_count"]
@@ -42,6 +48,7 @@ def load_products(db, dataset_dir: Path):
                 description=row["description"],
                 price=row["price"],
                 total_purchase_count=row["total_purchase_count"],
+                stock=int(row["stock"]),
             ))
         count += 1
     db.commit()

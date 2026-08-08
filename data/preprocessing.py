@@ -9,7 +9,7 @@ ecommerce_data.csv (UCI Online Retail 데이터셋) 전처리 스크립트
   5. events.csv      - view / add_to_cart / purchase / refund 합성 이벤트 로그
 
 실행:
-    python preprocess.py --input ecommerce_data.csv --outdir ./data --sample 1.0
+    python preprocessing.py --input ./dataset/ecommerce_data.csv --outdir ./dataset --sample 1.0
 
 --sample 옵션으로 0~1 사이 비율을 주면 빠른 테스트용으로 일부 행만 처리할 수 있다.
 """
@@ -39,8 +39,8 @@ RANDOM_SEED = 42
 
 def parse_args():
     p = argparse.ArgumentParser(description="Online Retail 데이터 전처리 및 이벤트 합성")
-    p.add_argument("--input", default="./dataset/ecommerce_data.csv")
-    p.add_argument("--outdir", default="./dataset")
+    p.add_argument("--input", default="/mnt/user-data/uploads/ecommerce_data.csv")
+    p.add_argument("--outdir", default="./data")
     p.add_argument("--sample", type=float, default=1.0, help="0~1 사이, 빠른 테스트용 샘플링 비율")
     return p.parse_args()
 
@@ -72,6 +72,24 @@ def load_and_clean(path: str, sample: float) -> pd.DataFrame:
     df = df.dropna(subset=["Description"])
     df["Description"] = df["Description"].str.strip()
 
+    # 원본 데이터셋의 UnitPrice 는 GBP(영국 파운드) 기준이다. 우리 서비스는
+    # 원화 기준으로 다루기로 해서, 여기서 한 번에 변환한다.
+    # 환율은 2026-08 기준 시장가 근처의 고정값을 코드에 박아둔다(실시간
+    # 환율 API를 붙일 이유가 없는 배치성 데이터 변환이라, 매번 최신 환율을
+    # 조회할 필요는 없다고 판단). 나중에 환율이 크게 바뀌면 이 상수만
+    # 조정하면 된다.
+    GBP_TO_KRW = 1950
+
+    # 1000원 단위로 반올림. round()가 아니라 정수 나눗셈으로 하는 이유:
+    # round(1500, -3) 같은 "은행가 반올림(banker's rounding)"은 .5 지점에서
+    # 짝수 쪽으로 반올림되는 파이썬 특유의 동작이 있어 직관과 다르게 동작할
+    # 수 있다. 나눗셈+반올림+곱셈 방식이 "500원 이상이면 올림"이라는
+    # 일반적인 기대와 정확히 일치한다.
+    df["UnitPrice"] = ((df["UnitPrice"] * GBP_TO_KRW / 1000).round() * 1000).astype(int)
+    # 반올림 결과가 0원이 되는 행은 제거 (변환 전 가격이 너무 낮아서
+    # 1000원 단위로는 0으로 떨어진 경우, 판매 가격으로 의미가 없음)
+    df = df[df["UnitPrice"] > 0]
+
     return df
 
 
@@ -83,10 +101,25 @@ def build_products(df: pd.DataFrame) -> pd.DataFrame:
     grouped = df.groupby("StockCode")
     products = grouped.agg(
         description=("Description", lambda x: x.mode().iloc[0]),
-        price=("UnitPrice", lambda x: round(x.median(), 2)),
+        # 같은 상품도 거래마다 가격이 조금씩 다를 수 있어(할인 등) 대표값으로
+        # median을 쓴다. UnitPrice는 이미 원화 정수로 변환되어 있지만,
+        # median 자체가 1000원 단위를 벗어날 수 있어(예: 여러 값의 중간)
+        # 한 번 더 1000원 단위로 반올림해서 상품 가격의 일관성을 지킨다.
+        price=("UnitPrice", lambda x: int(round(x.median() / 1000) * 1000)),
         total_purchase_count=("StockCode", "count"),
     ).reset_index()
     products = products.rename(columns={"StockCode": "product_id"})
+
+    # 재고(stock) — 원본 데이터셋에는 없던 개념이라 임의로 채워 넣는다
+    # (adrs/0004-inventory-concurrency-control.md). "과거에 많이 팔린
+    # 상품일수록 최근에도 넉넉히 재입고했다"는 가정으로, 과거 판매량에
+    # 비례한 기준치에 약간의 무작위성을 섞어 부여한다. 재현 가능하도록
+    # 랜덤 시드를 고정한다.
+    rng = np.random.default_rng(RANDOM_SEED)
+    base_stock = (products["total_purchase_count"] * 0.3).clip(lower=5).astype(int)
+    noise = rng.integers(low=-3, high=10, size=len(products))
+    products["stock"] = (base_stock + noise).clip(lower=0)
+
     return products.sort_values("total_purchase_count", ascending=False).reset_index(drop=True)
 
 
