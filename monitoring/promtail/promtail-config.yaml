@@ -1,0 +1,30 @@
+# monitoring/promtail/promtail-config.yaml
+#
+# Docker 소켓을 통해 이 호스트의 모든 컨테이너를 자동으로 찾아내고,
+# 그 로그를 Loki로 전송한다. 컨테이너를 새로 추가/제거해도 설정을
+# 손댈 필요가 없다 (docker_sd_configs 가 자동으로 갱신).
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  # 어디까지 읽었는지 기록해서, promtail이 재시작해도 중복 전송하지 않게 함
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # 컨테이너 이름 앞의 "/"를 떼고 "container" 라벨로 사용.
+      # (Grafana 대시보드/Explore 에서 이 라벨로 컨테이너를 필터링한다)
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: "container"
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "stream"

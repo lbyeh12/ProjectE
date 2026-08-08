@@ -1,0 +1,46 @@
+# monitoring/loki/loki-config.yaml
+#
+# 단일 노드, 로컬 파일시스템 저장 최소 구성 (adrs/0004 참고).
+# 대규모 운영을 위한 설정이 아니라, 개인 프로젝트 규모에서 로그를
+# 저장/조회하는 데 필요한 최소한만 담았다.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# 개인 프로젝트라 보존 기간을 짧게(7일) 잡아서 디스크 사용량을 통제한다.
+# 필요하면 늘릴 수 있다.
+limits_config:
+  retention_period: 168h
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  # Loki 3.x 부터 retention_enabled=true 이면 이 옵션이 필수다.
+  # 우리는 filesystem 스토리지를 쓰므로 동일하게 filesystem 으로 지정.
+  delete_request_store: filesystem
