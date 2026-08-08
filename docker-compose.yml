@@ -215,6 +215,10 @@ services:
       JWT_SECRET_KEY: dev-only-secret-change-me-0123456789abcdef
       # 기본은 개발 모드(워커 1개, --reload). 부하 테스트 시에는
       #   WORKERS=4 docker compose up -d --force-recreate backend
+      # 워커 1/4/8/12 를 실측 비교한 결과 4가 처리량/응답속도/안정성의
+      # 균형점이었다 (로컬 8코어 기준, docs/perf/003-worker-scaling.md).
+      # 8/12는 처리량은 소폭 더 높지만 응답 지연 증가, 12에서는 EOF
+      # 에러까지 발생해 채택하지 않음.
       # 처럼 오버라이드해서 재시작한다 (docs/perf/002-stress-test.md 참고).
       WORKERS: "${WORKERS:-1}"
     ports:
@@ -309,6 +313,28 @@ services:
       - "--kafka.server=kafka:29092"
     ports:
       - "9308:9308"
+    restart: unless-stopped
+
+  # 포화도(Saturation) 지표: 컨테이너별 CPU/메모리 사용량.
+  # EOF/timeout 이 특정 워커 개수와 무관하게 VU 최대치 근처에서 발생하는
+  # 원인 후보 중 하나가 "CPU 포화"였는데, 지금까지는 이걸 볼 방법이
+  # docker stats 를 수동으로 실행하는 것뿐이었다. cAdvisor로 자동
+  # 수집해서 Grafana에서 상시 관찰 가능하게 한다.
+  #
+  # 참고(Mac/Docker Desktop): 리눅스 호스트를 전제로 한 일부 볼륨
+  # (/dev/disk, /dev/kmsg)은 Docker Desktop VM 환경에서는 없을 수 있어
+  # 제외했다. CPU/메모리 지표는 Docker Desktop에서도 정상 수집된다.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: projecte-cadvisor
+    privileged: true
+    ports:
+      - "8085:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
     restart: unless-stopped
 
 volumes:
