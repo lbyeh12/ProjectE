@@ -4,6 +4,10 @@
 #   - FastAPI (요청 수/응답시간/에러율)
 #   - PostgreSQL (커넥션/커밋 상태) via postgres_exporter
 #   - Kafka (consumer lag) via kafka_exporter
+# 포화도(컨테이너별 CPU/메모리)는 cAdvisor로 시도했으나 Mac Docker
+# Desktop 환경에서 컨테이너 이름 해석이 안 돼 제거함
+# (docs/perf/004-cadvisor-removed.md 참고). 개별 컨테이너 CPU/메모리는
+# Docker Desktop 앱이나 `docker stats`로 확인한다.
 global:
   scrape_interval: 5s # 부하 테스트처럼 짧은 시간에 변화가 큰 상황을 보려고 기본값(15s)보다 짧게
 

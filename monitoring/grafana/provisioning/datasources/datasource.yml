@@ -1,7 +1,7 @@
 # monitoring/grafana/provisioning/datasources/datasource.yml
 #
-# Grafana 컨테이너가 뜰 때 이 파일을 읽어서 Prometheus를 자동으로 데이터소스로
-# 등록한다. 매번 UI에서 수동으로 등록하지 않아도 되게 하려는 것.
+# Grafana 컨테이너가 뜰 때 이 파일을 읽어서 Prometheus/Loki를 자동으로
+# 데이터소스로 등록한다. 매번 UI에서 수동으로 등록하지 않아도 되게 하려는 것.
 apiVersion: 1
 
 datasources:
@@ -10,4 +10,12 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    editable: true
+
+  # 로그 (adrs/0004). 같은 Grafana 화면에서 메트릭 그래프를 보다가
+  # Explore로 넘어가 이 데이터소스로 바로 로그를 조회할 수 있다.
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
     editable: true

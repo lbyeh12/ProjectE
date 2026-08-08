@@ -40,7 +40,7 @@ def render_realtime_tab():
     with c1:
         st.metric("현재 접속자 (최근 5분)", get_current_visitors(minutes=5))
     with c2:
-        st.metric("오늘 누적 매출", f"£{get_realtime_revenue_today():,.2f}")
+        st.metric("오늘 누적 매출", f"₩{get_realtime_revenue_today():,.0f}")
     with c3:
         traffic_df = get_recent_traffic(minutes=60)
         recent_events = int(traffic_df["event_count"].sum()) if not traffic_df.empty else 0
@@ -119,7 +119,7 @@ with tab_batch:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("최근 DAU", int(latest["dau"]))
         c2.metric("최근 전환율", f"{latest['conversion_rate']:.1%}")
-        c3.metric("최근 매출", f"£{latest['revenue']:,.2f}")
+        c3.metric("최근 매출", f"₩{latest['revenue']:,.0f}")
         c4.metric("최근 이벤트 수", f"{int(latest['event_count']):,}")
 
         st.divider()

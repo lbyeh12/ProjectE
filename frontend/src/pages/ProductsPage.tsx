@@ -74,7 +74,7 @@ function ProductCard({ product }: { product: Product }) {
     >
       <div className="card-code">{product.product_id}</div>
       <div className="card-title">{product.description}</div>
-      <div className="card-price">£{product.price.toFixed(2)}</div>
+      <div className="card-price">₩{product.price.toLocaleString("ko-KR")}</div>
       <div className="card-meta">구매 {product.total_purchase_count.toLocaleString()}회</div>
     </Link>
   );

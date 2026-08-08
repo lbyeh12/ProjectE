@@ -215,6 +215,10 @@ services:
       JWT_SECRET_KEY: dev-only-secret-change-me-0123456789abcdef
       # 기본은 개발 모드(워커 1개, --reload). 부하 테스트 시에는
       #   WORKERS=4 docker compose up -d --force-recreate backend
+      # 워커 1/4/8/12 를 실측 비교한 결과 4가 처리량/응답속도/안정성의
+      # 균형점이었다 (로컬 8코어 기준, docs/perf/003-worker-scaling.md).
+      # 8/12는 처리량은 소폭 더 높지만 응답 지연 증가, 12에서는 EOF
+      # 에러까지 발생해 채택하지 않음.
       # 처럼 오버라이드해서 재시작한다 (docs/perf/002-stress-test.md 참고).
       WORKERS: "${WORKERS:-1}"
     ports:
@@ -311,8 +315,45 @@ services:
       - "9308:9308"
     restart: unless-stopped
 
+  # 포화도(Saturation) 지표는 cAdvisor로 시도했으나, Mac Docker Desktop
+  # 환경에서 컨테이너 이름/라벨을 전혀 해석하지 못해(id="/docker/<hash>"만
+  # 나오고 어느 컨테이너인지 구분이 안 됨) 실용성이 없다고 판단해 제거했다.
+  # 소켓을 파일 단위로 명시 마운트해도 동일했다. 개별 컨테이너 구분이
+  # 필요한 CPU/메모리 확인은 Docker Desktop 앱의 Containers 탭이나
+  # `docker stats`로 대체한다 (docs/perf/004-cadvisor-removed.md 참고).
+
+  # ========================================================
+  # 로그 수집 (adrs/0004-log-collection-tool-selection.md)
+  # EOF/timeout 처럼 메트릭에는 원인이 안 남는 실패를 추적하기 위해 도입.
+  # ========================================================
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: projecte-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: projecte-promtail
+    depends_on:
+      - loki
+    volumes:
+      - ./monitoring/promtail/promtail-config.yaml:/etc/promtail/config.yaml
+      # 컨테이너 로그 원본 파일과 Docker 소켓을 읽기 전용으로 마운트.
+      # (docker_sd_configs 로 컨테이너를 자동 발견하려면 소켓 접근이 필요)
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yaml
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   kafka-data:
   prometheus-data:
   grafana-data:
+  loki-data:

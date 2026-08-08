@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, get_current_user_optional
 from app.database import get_db
-from app.models import CartItem, RawEvent, User
+from app.models import CartItem, Product, RawEvent, User
 from app.schemas import EventIn, EventOut, PurchaseResult
 from app import kafka_producer
 
@@ -74,9 +74,47 @@ def checkout(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    재고 동시성 제어: 비관적 락 (adrs/0004-inventory-concurrency-control.md)
+
+    관련 상품 행에 SELECT ... FOR UPDATE로 락을 걸고, 그 락을 결제
+    완료(커밋)까지 유지한다. 재고 차감과 주문(이벤트) 생성을 하나의
+    트랜잭션으로 묶어서, 처리 중 서버가 죽어도 커밋 전이면 전부
+    자동으로 롤백되어 재고가 꼬이지 않는다.
+
+    재고가 하나라도 부족하면 전체 구매를 취소한다 (원자성 원칙 —
+    "일부만 성공"하는 상태를 만들지 않는다).
+    """
     cart_items = db.query(CartItem).filter(CartItem.user_id == current_user.user_id).all()
     if not cart_items:
         raise HTTPException(status_code=400, detail="장바구니가 비어 있습니다.")
+
+    # 데드락 방지: 여러 상품을 동시에 살 때, 항상 product_id 정렬 순서로
+    # 락을 잡는다. 두 사용자가 서로 다른 순서로 여러 상품의 락을 요청하면
+    # 서로가 서로를 기다리는 데드락이 생길 수 있는데, 잠그는 순서를
+    # 고정해두면 이 문제가 구조적으로 방지된다.
+    product_ids = sorted({item.product_id for item in cart_items})
+
+    locked_products = {
+        p.product_id: p
+        for p in db.query(Product)
+        .filter(Product.product_id.in_(product_ids))
+        .with_for_update()
+        .all()
+    }
+
+    # 락을 잡은 "이후"에 재고를 검사한다. 락 없이(또는 락 이전에) 검사하면
+    # 그 사이 다른 트랜잭션이 재고를 바꿀 수 있어 검사 자체가 무의미해진다.
+    for item in cart_items:
+        product = locked_products.get(item.product_id)
+        if product is None or product.stock < item.quantity:
+            # 하나라도 부족하면 즉시 예외를 던진다. 아직 commit 전이라
+            # 지금까지 아무 변경도 반영되지 않은 채로 요청이 끝난다
+            # (장바구니도 그대로 남아있어, 사용자가 수량을 조정해 재시도 가능).
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{item.product_id}' 상품의 재고가 부족합니다.",
+            )
 
     total_price = 0.0
     now = datetime.utcnow()
@@ -86,8 +124,14 @@ def checkout(
     # 모든 이벤트가 하나의 경로로 흐르도록 한다. 실제 PostgreSQL 저장은
     # 다음 단계의 Spark Streaming(Consumer)이 담당한다.
     for item in cart_items:
-        price = item.product.price
+        product = locked_products[item.product_id]
+        price = product.price
         total_price += price * item.quantity
+
+        # 재고 차감 + 판매 카운트 반영. 위에서 잡은 락이 유지되고 있는
+        # 상태라, 다른 트랜잭션이 같은 상품을 동시에 건드릴 수 없다.
+        product.stock -= item.quantity
+        product.total_purchase_count = (product.total_purchase_count or 0) + item.quantity
 
         # 수량만큼 purchase 이벤트를 각각 기록 (이벤트 스키마는 단일 상품 단위)
         for _ in range(item.quantity):
@@ -110,6 +154,8 @@ def checkout(
     for item in cart_items:
         db.delete(item)
 
+    # 여기서 커밋되는 순간, 재고 차감/판매 카운트/장바구니 삭제가 전부
+    # 한 번에 확정되고, 위에서 잡은 상품 행 락도 이때 함께 풀린다.
     db.commit()
 
     return PurchaseResult(

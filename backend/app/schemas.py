@@ -41,6 +41,7 @@ class ProductOut(BaseModel):
     description: str
     price: float
     total_purchase_count: int
+    stock: int
 
 
 # --- Cart ---
