@@ -38,5 +38,29 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24시간
 
+    # --- DB 커넥션 풀 설정 ---
+    # SQLAlchemy 기본값(pool_size=5, max_overflow=10, 최대 15개)이 대규모
+    # 트래픽에서 병목이었음을 부하 테스트로 확인함 (docs/perf/002-stress-test.md).
+    # 값을 늘려서 재검증한다. PostgreSQL 자체의 max_connections(기본 100)도
+    # 함께 고려해야 한다 (다른 서비스: Airflow 등도 같은 PostgreSQL을 공유).
+    db_pool_size: int = 20
+    db_max_overflow: int = 30
+
+    # --- Redis 설정 (멱등성 키 저장소, adrs/0006) ---
+    redis_url: str = "redis://localhost:6379/0"
+    # 멱등성 키 보관 기간(초). "사용자가 재시도할 만한 시간"이면
+    # 충분하다고 보고 10분으로 잡는다.
+    idempotency_ttl_seconds: int = 600
+
+    # --- Rate Limiting 설정 (adrs/0007-rate-limiting.md) ---
+    # 로그인: 브루트포스 방어. 정상 사용자가 비밀번호를 몇 번 틀리는
+    # 것까지는 허용하되, 자동화된 반복 시도는 막을 만한 값.
+    login_rate_limit_count: int = 5
+    login_rate_limit_window_seconds: int = 60
+    # 구매: 봇의 반복 재구매 시도 방어. 정상적인 연속 구매 흐름은
+    # 방해하지 않을 만큼 여유 있게 잡는다.
+    purchase_rate_limit_count: int = 10
+    purchase_rate_limit_window_seconds: int = 60
+
 
 settings = Settings()

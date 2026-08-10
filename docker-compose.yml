@@ -203,6 +203,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       # 컨테이너 안에서는 localhost가 아니라 서비스 이름으로 접속한다.
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/projecte
@@ -211,6 +213,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_EVENTS_TOPIC: user-events
       USE_KAFKA: "true"
+      # 멱등성 키 저장소 (adrs/0006)
+      REDIS_URL: redis://redis:6379/0
       # 개발용 고정값. 운영 배포 시 반드시 강력한 랜덤 값으로 교체할 것.
       JWT_SECRET_KEY: dev-only-secret-change-me-0123456789abcdef
       # 기본은 개발 모드(워커 1개, --reload). 부하 테스트 시에는
@@ -221,10 +225,66 @@ services:
       # 에러까지 발생해 채택하지 않음.
       # 처럼 오버라이드해서 재시작한다 (docs/perf/002-stress-test.md 참고).
       WORKERS: "${WORKERS:-1}"
+      # 장애 주입 테스트용 (adrs/0004-inventory-concurrency-control.md,
+      # loadtest/k6/inventory_race_crash.js) 크래시 지점은 환경변수가
+      # 아니라 /tmp/chaos_crash_before_commit 파일의 존재 여부로 켜진다.
+      # (환경변수 방식은 "매번" 크래시가 나서 재시작 후에도 다음 요청에서
+      # 또 죽어 서버가 응답 불가 상태로 남는 문제가 있었다. 파일은
+      # 크래시 "직전에 지워지므로" 정확히 한 번만 재현된다.)
+      #   docker exec projecte-backend touch /tmp/chaos_crash_before_commit
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+    restart: unless-stopped
+
+  # Outbox Relay (adrs/0005-outbox-pattern.md).
+  # outbox_events 테이블을 폴링해서 실제로 Kafka로 전송하는 별도 프로세스.
+  # backend와 같은 이미지를 재사용하되, entrypoint(alembic+uvicorn) 대신
+  # relay 스크립트만 실행하도록 command로 덮어쓴다.
+  outbox-relay:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: projecte-outbox-relay
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/projecte
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_EVENTS_TOPIC: user-events
+      # 폴링 주기(초). 대시보드가 "실시간"을 표방하는 만큼, Airflow(분
+      # 단위) 대신 이렇게 짧은 주기로 도는 상시 프로세스로 만들었다.
+      POLL_INTERVAL_SECONDS: "2"
+      BATCH_SIZE: "100"
+      # scripts/outbox_relay.py 가 "from app.config import settings"로
+      # app 패키지를 import 하는데, `python scripts/outbox_relay.py`로
+      # 실행하면 파이썬이 scripts/ 를 기준으로 모듈을 찾아서
+      # ModuleNotFoundError가 난다. 작업 디렉토리(/app, backend/가
+      # 마운트된 곳)를 명시적으로 추가해 app 패키지를 찾게 한다.
+      PYTHONPATH: /app
+    entrypoint: ["python", "-u", "scripts/outbox_relay.py"]
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  # 멱등성 키 저장소 (adrs/0006-idempotency-store-selection.md).
+  # 이후 Rate Limiting에도 재사용한다.
+  redis:
+    image: redis:7.4
+    container_name: projecte-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   frontend:
@@ -315,15 +375,15 @@ services:
       - "9308:9308"
     restart: unless-stopped
 
-  # 포화도(Saturation) 지표는 cAdvisor로 시도했으나, Mac Docker Desktop
-  # 환경에서 컨테이너 이름/라벨을 전혀 해석하지 못해(id="/docker/<hash>"만
-  # 나오고 어느 컨테이너인지 구분이 안 됨) 실용성이 없다고 판단해 제거했다.
-  # 소켓을 파일 단위로 명시 마운트해도 동일했다. 개별 컨테이너 구분이
-  # 필요한 CPU/메모리 확인은 Docker Desktop 앱의 Containers 탭이나
-  # `docker stats`로 대체한다 (docs/perf/004-cadvisor-removed.md 참고).
+  # 포화도(Saturation, 컨테이너별 CPU/메모리) 도구는 cAdvisor, Netdata를
+  # 순서대로 시도했으나 둘 다 이 환경에서 실용적으로 쓰기 어려워
+  # 포기했다 (docs/perf/004-cadvisor-removed.md,
+  # docs/perf/005-netdata-removed.md 참고). 개별 컨테이너 CPU/메모리는
+  # 필요할 때 Docker Desktop 앱의 Containers 탭이나 `docker stats`로
+  # 확인한다.
 
   # ========================================================
-  # 로그 수집 (adrs/0004-log-collection-tool-selection.md)
+  # 로그 수집 (adrs/0003-log-collection-tool-selection.md)
   # EOF/timeout 처럼 메트릭에는 원인이 안 남는 실패를 추적하기 위해 도입.
   # ========================================================
   loki:
@@ -357,3 +417,4 @@ volumes:
   prometheus-data:
   grafana-data:
   loki-data:
+  redis-data:
