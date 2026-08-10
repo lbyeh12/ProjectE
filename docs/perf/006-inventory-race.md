@@ -69,4 +69,4 @@ db.commit() 이전에 하는 구조라, 재고를 확보한 요청이 Kafka 전�
 ## Related
 
 - Related ADRs: ADR 0004 (재고 동시성 제어 방식 선택)
-- 이전 기록: 001-baseline.md
+- Related Perfs: 001-baseline.md
