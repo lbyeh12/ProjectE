@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, get_current_user_optional
+from app.config import settings
 from app.database import get_db
 from app.models import CartItem, OutboxEvent, Product, RawEvent, User
 from app.schemas import EventIn, EventOut, PurchaseResult
@@ -114,6 +115,22 @@ def checkout(
     테스트 스크립트) 예전과 동일하게 매번 새로 처리한다 - 기존 호출자와
     호환성을 유지하기 위해 필수로 강제하지 않는다.
     """
+    # Rate Limiting (adrs/0007-rate-limiting.md): 한정 재고에 봇이
+    # 반복적으로 구매를 시도하는 걸 방어한다. 멱등성 검사(Redis 조회)
+    # 보다도 먼저 걸어서, 과도한 반복 요청은 그 검사조차 없이 바로
+    # 거절한다.
+    allowed = redis_client.check_rate_limit(
+        bucket="purchase",
+        identifier=str(current_user.user_id),
+        limit=settings.purchase_rate_limit_count,
+        window_seconds=settings.purchase_rate_limit_window_seconds,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="구매 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+        )
+
     if idempotency_key:
         began = redis_client.try_begin_idempotent_request(idempotency_key)
         if not began:

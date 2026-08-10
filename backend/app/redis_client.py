@@ -92,3 +92,28 @@ def clear_idempotent_request(key: str) -> None:
     끝날 때까지 "처리 중"이라고만 응답하는 상태로 막혀버린다.
     """
     _client.delete(f"idempotency:{key}")
+
+
+def check_rate_limit(bucket: str, identifier: str, limit: int, window_seconds: int) -> bool:
+    """
+    악의적인 반복 요청(브루트포스, 봇)을 차단하기 위한 Rate Limiting
+    (adrs/0007-rate-limiting.md). 고정 윈도우(fixed window) 방식을 쓴다:
+    윈도우 시작 시점의 카운터를 INCR로 올리고, 그 윈도우의 첫 요청일
+    때만 만료 시간을 건다.
+
+    워커가 여러 개(WORKERS=4)라 파이썬 변수로 세면 워커마다 따로
+    카운트되어 실제 제한이 워커 수만큼 느슨해진다 - Redis를 쓰면
+    모든 워커가 정확히 같은 카운터를 보고 증가시킨다.
+
+    반환값: True면 허용, False면 제한 초과(거절해야 함).
+    """
+    redis_key = f"ratelimit:{bucket}:{identifier}"
+    # INCR은 원자적 연산이라, 여러 워커가 동시에 호출해도 정확히
+    # 순서대로 1씩 늘어난다 (경쟁 상태로 카운트가 씹히지 않는다).
+    count = _client.incr(redis_key)
+    if count == 1:
+        # 이 윈도우의 첫 요청일 때만 만료 시간을 건다. 매번 걸면
+        # "계속 요청이 오는 한 만료가 안 되는" 슬라이딩 윈도우가 되어
+        # 버려, 고정 윈도우의 의도(일정 시간마다 리셋)와 달라진다.
+        _client.expire(redis_key, window_seconds)
+    return count <= limit

@@ -52,5 +52,15 @@ class Settings(BaseSettings):
     # 충분하다고 보고 10분으로 잡는다.
     idempotency_ttl_seconds: int = 600
 
+    # --- Rate Limiting 설정 (adrs/0007-rate-limiting.md) ---
+    # 로그인: 브루트포스 방어. 정상 사용자가 비밀번호를 몇 번 틀리는
+    # 것까지는 허용하되, 자동화된 반복 시도는 막을 만한 값.
+    login_rate_limit_count: int = 5
+    login_rate_limit_window_seconds: int = 60
+    # 구매: 봇의 반복 재구매 시도 방어. 정상적인 연속 구매 흐름은
+    # 방해하지 않을 만큼 여유 있게 잡는다.
+    purchase_rate_limit_count: int = 10
+    purchase_rate_limit_window_seconds: int = 60
+
 
 settings = Settings()
