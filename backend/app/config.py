@@ -38,5 +38,19 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24시간
 
+    # --- DB 커넥션 풀 설정 ---
+    # SQLAlchemy 기본값(pool_size=5, max_overflow=10, 최대 15개)이 대규모
+    # 트래픽에서 병목이었음을 부하 테스트로 확인함 (docs/perf/002-stress-test.md).
+    # 값을 늘려서 재검증한다. PostgreSQL 자체의 max_connections(기본 100)도
+    # 함께 고려해야 한다 (다른 서비스: Airflow 등도 같은 PostgreSQL을 공유).
+    db_pool_size: int = 20
+    db_max_overflow: int = 30
+
+    # --- Redis 설정 (멱등성 키 저장소, adrs/0006) ---
+    redis_url: str = "redis://localhost:6379/0"
+    # 멱등성 키 보관 기간(초). "사용자가 재시도할 만한 시간"이면
+    # 충분하다고 보고 10분으로 잡는다.
+    idempotency_ttl_seconds: int = 600
+
 
 settings = Settings()

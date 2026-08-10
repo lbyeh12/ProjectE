@@ -36,6 +36,9 @@ bcrypt==4.0.1                       # passlib 1.7.4와의 호환성 문제로 �
 kafka-python>=2.0.2
 # 또는 confluent-kafka>=2.3 (성능이 더 좋지만 librdkafka C 라이브러리 필요, 설치가 더 복잡함)
 
+# --- Redis (멱등성 키 저장소, adrs/0006) ---
+redis>=5.0
+
 # --- 사용자 행동 시뮬레이터 (simulator.py) ---
 requests>=2.31
 

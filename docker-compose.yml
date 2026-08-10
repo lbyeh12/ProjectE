@@ -203,6 +203,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       # 컨테이너 안에서는 localhost가 아니라 서비스 이름으로 접속한다.
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/projecte
@@ -211,6 +213,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_EVENTS_TOPIC: user-events
       USE_KAFKA: "true"
+      # 멱등성 키 저장소 (adrs/0006)
+      REDIS_URL: redis://redis:6379/0
       # 개발용 고정값. 운영 배포 시 반드시 강력한 랜덤 값으로 교체할 것.
       JWT_SECRET_KEY: dev-only-secret-change-me-0123456789abcdef
       # 기본은 개발 모드(워커 1개, --reload). 부하 테스트 시에는
@@ -265,6 +269,22 @@ services:
     entrypoint: ["python", "-u", "scripts/outbox_relay.py"]
     volumes:
       - ./backend:/app
+    restart: unless-stopped
+
+  # 멱등성 키 저장소 (adrs/0006-idempotency-store-selection.md).
+  # 이후 Rate Limiting에도 재사용한다.
+  redis:
+    image: redis:7.4
+    container_name: projecte-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   frontend:
@@ -397,3 +417,4 @@ volumes:
   prometheus-data:
   grafana-data:
   loki-data:
+  redis-data:

@@ -13,16 +13,18 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.config import settings
 from app.database import engine  # noqa: F401  (다른 모듈이 import 하는 경우가 있어 유지)
 from app.routers import auth, cart, events, products
-from app import kafka_producer
+from app import kafka_producer, redis_client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 앱 시작 시: Kafka Producer 초기화 (use_kafka=True인 경우)
+    # 앱 시작 시: Kafka Producer, Redis 클라이언트 초기화
     kafka_producer.init_producer()
+    redis_client.init_client()
     yield
-    # 앱 종료 시: 남은 메시지 flush 후 Producer 종료
+    # 앱 종료 시: 남은 메시지 flush 후 종료
     kafka_producer.close_producer()
+    redis_client.close_client()
 
 
 app = FastAPI(title="ProjectE API", version="0.1.0", lifespan=lifespan)

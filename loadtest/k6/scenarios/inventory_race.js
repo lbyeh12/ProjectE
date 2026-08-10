@@ -95,11 +95,21 @@ export function inventoryRace(data) {
 
   // 3. 구매 시도. 여기서 나오는 결과가 이 시나리오의 핵심 관찰 대상이다.
   //    - 200: 구매 성공 (재고를 확보한 사용자)
-  //    - 409: 재고 부족으로 정상 거절 (adrs/0004 에서 의도한 동작)
+  //    - 409: 재고 부족으로 정상 거절 (adrs/0004 에서 의도한 동작),
+  //           또는 같은 멱등성 키로 처리 중인 요청과 겹침 (adrs/0006)
   //    - 5xx: 서버가 응답은 했지만 처리 중 에러 (코드 예외 등)
   //    - 0  : 연결 자체가 끊김 (backend가 죽거나 네트워크 단절 - 장애 시나리오의 핵심 신호)
   //    - 그 외: 예상 못 한 상태 (400/401/404 등) - 반드시 카운터+로그로 남김
-  const purchaseRes = http.post(`${BASE_URL}/purchase`, null, authHeaders);
+  //
+  // Idempotency-Key: 이 VU, 이 iteration에 대해 고유한 키를 만들어
+  // 붙인다 (adrs/0006-idempotency-store-selection.md). 실제 재시도
+  // 상황(같은 키로 다시 요청)은 이 시나리오가 아니라 별도로 검증한다 -
+  // 여기서는 "멱등성 키를 붙여도 정상 흐름이 깨지지 않는지"를 확인한다.
+  const idempotencyKey = `${__VU}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  const purchaseHeaders = {
+    headers: { ...authHeaders.headers, "Idempotency-Key": idempotencyKey },
+  };
+  const purchaseRes = http.post(`${BASE_URL}/purchase`, null, purchaseHeaders);
 
   if (purchaseRes.status === 200) {
     purchaseSuccess.add(1);

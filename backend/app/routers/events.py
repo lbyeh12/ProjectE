@@ -20,14 +20,14 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, get_current_user_optional
 from app.database import get_db
 from app.models import CartItem, OutboxEvent, Product, RawEvent, User
 from app.schemas import EventIn, EventOut, PurchaseResult
-from app import kafka_producer
+from app import kafka_producer, redis_client
 
 router = APIRouter(tags=["events"])
 
@@ -93,6 +93,7 @@ def log_event(
 def checkout(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """
     재고 동시성 제어: 비관적 락 (adrs/0004-inventory-concurrency-control.md)
@@ -104,7 +105,50 @@ def checkout(
 
     재고가 하나라도 부족하면 전체 구매를 취소한다 (원자성 원칙 —
     "일부만 성공"하는 상태를 만들지 않는다).
+
+    멱등성 (adrs/0006-idempotency-store-selection.md): 커밋은 성공했지만
+    응답이 클라이언트에 전달되기 전에 연결이 끊기면(docs/perf/006에서
+    실측), 사용자가 재시도할 때 중복 구매가 될 수 있다. 클라이언트가
+    Idempotency-Key 헤더를 보내면, 같은 키로 이미 처리된 요청은 재실행
+    하지 않고 이전 결과를 그대로 반환한다. 헤더가 없으면(예: 내부
+    테스트 스크립트) 예전과 동일하게 매번 새로 처리한다 - 기존 호출자와
+    호환성을 유지하기 위해 필수로 강제하지 않는다.
     """
+    if idempotency_key:
+        began = redis_client.try_begin_idempotent_request(idempotency_key)
+        if not began:
+            cached = redis_client.get_idempotent_result(idempotency_key)
+            if cached is not None:
+                # 이전에 이미 끝난 요청 - 그때 결과를 그대로 재사용.
+                # (성공 응답만 캐싱하므로 여기 저장된 건 항상 200이다.)
+                return PurchaseResult(**cached["body"])
+            # 아직 "처리 중"인 요청과 겹친 경우 (다른 스레드/워커가 지금
+            # 처리하는 중). 결과가 아직 없으니, 완료될 때까지 기다리지
+            # 않고 명확하게 "잠시 후 다시 시도"로 응답한다.
+            raise HTTPException(
+                status_code=409,
+                detail="같은 요청이 이미 처리 중입니다. 잠시 후 다시 시도해주세요.",
+            )
+
+    try:
+        result = _do_checkout(current_user, db)
+    except HTTPException:
+        # 빈 장바구니(400), 재고 부족(409) 같은 정상적인 도메인 로직
+        # 실패는 결과로 캐싱하지 않고 "처리 중" 표시를 지운다. 지우지
+        # 않으면, 예를 들어 장바구니를 채우고 재시도해도 계속 "처리
+        # 중"이라고만 응답하는 상태로 TTL이 끝날 때까지 막혀버린다.
+        if idempotency_key:
+            redis_client.clear_idempotent_request(idempotency_key)
+        raise
+
+    if idempotency_key:
+        redis_client.save_idempotent_result(
+            idempotency_key, status_code=200, body=result.model_dump()
+        )
+    return result
+
+
+def _do_checkout(current_user: User, db: Session) -> PurchaseResult:
     cart_items = db.query(CartItem).filter(CartItem.user_id == current_user.user_id).all()
     if not cart_items:
         raise HTTPException(status_code=400, detail="장바구니가 비어 있습니다.")
@@ -186,6 +230,13 @@ def checkout(
     # 여기서 죽어도 둘 다 롤백되어 안전하다 - 이 지점을 그대로 남겨서
     # 재검증할 수 있게 한다. 평소에는 이 플래그 파일이 없어서 영향이
     # 전혀 없다.
+    #
+    # 참고: 이 지점에서 os._exit()로 죽으면 Python 코드가 더 이상
+    # 실행되지 않으므로, checkout()의 try/except도 못 돌고 Redis의
+    # "처리 중" 표시가 그대로 남는다. 이 경우 재시도는
+    # idempotency_ttl_seconds(기본 600초)가 지나야 다시 시도할 수
+    # 있다 - 실제 서버 크래시라면 재시작에 걸리는 시간과 비슷한
+    # 수준이라 감수 가능한 한계로 본다.
     chaos_flag_path = "/tmp/chaos_crash_before_commit"
     if os.path.exists(chaos_flag_path):
         os.remove(chaos_flag_path)
