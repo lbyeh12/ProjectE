@@ -33,4 +33,4 @@
 ## Related
 
 - Related ADRs: ADR 0006 (멱등성 키 저장소로 Redis 선택), ADR 0005 (Outbox 패턴 도입)
-- 이전 기록: 007-outbox-verification.md
+- Related Perfs: 007-outbox-verification.md
