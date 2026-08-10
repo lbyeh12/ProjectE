@@ -8,10 +8,15 @@
 - POST /purchase : 로그인 필수. 장바구니에 담긴 항목을 구매로 확정하고,
                     각 항목마다 purchase 이벤트를 기록한 뒤 장바구니를 비운다.
 
-두 엔드포인트 모두 이벤트를 Kafka(user-events 토픽)로 전송한다.
-use_kafka=False 인 경우에만 PostgreSQL에 직접 저장하는 방식으로 폴백한다.
-실제 이벤트의 영속 저장은 다음 단계의 Spark Streaming(Consumer)이 담당한다.
+두 엔드포인트 모두 이벤트를 Kafka로 직접 보내지 않고, outbox_events
+테이블에 기록한다 (adrs/0005-outbox-pattern.md). 별도 Relay
+(scripts/outbox_relay.py)가 이 테이블을 폴링해 실제로 Kafka(user-events
+토픽)로 전송한다. use_kafka=False 인 경우에만 PostgreSQL(raw_events)에
+직접 저장하는 방식으로 폴백한다. 실제 이벤트의 영속 저장은 다음
+단계의 Spark Streaming(Consumer)이 담당한다.
 """
+import json
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -20,11 +25,25 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, get_current_user_optional
 from app.database import get_db
-from app.models import CartItem, Product, RawEvent, User
+from app.models import CartItem, OutboxEvent, Product, RawEvent, User
 from app.schemas import EventIn, EventOut, PurchaseResult
 from app import kafka_producer
 
 router = APIRouter(tags=["events"])
+
+
+def _write_to_outbox(db: Session, payload: dict) -> None:
+    """
+    Kafka로 직접 보내지 않고, outbox_events 테이블에 "보낼 이벤트"를
+    기록한다. 호출하는 쪽(log_event, checkout)의 트랜잭션에 그대로
+    포함되므로, 그 트랜잭션이 커밋될 때만 이 기록도 같이 확정된다
+    (adrs/0005-outbox-pattern.md). 실제 Kafka 전송은 별도 Relay
+    (scripts/outbox_relay.py)가 담당한다.
+    """
+    payload_for_json = dict(payload)
+    if isinstance(payload_for_json.get("timestamp"), datetime):
+        payload_for_json["timestamp"] = payload_for_json["timestamp"].isoformat()
+    db.add(OutboxEvent(payload=json.dumps(payload_for_json)))
 
 
 @router.post("/events", response_model=EventOut)
@@ -47,10 +66,11 @@ def log_event(
     }
 
     if kafka_producer.is_enabled():
-        # 이벤트를 Kafka로 전송한다. 실제 PostgreSQL 저장은
-        # 다음 단계의 Spark Streaming(Consumer)이 담당한다.
-        kafka_producer.send_event(payload)
-        # Kafka 경로에서는 DB에 저장하지 않으므로 id는 아직 없다.
+        # Kafka로 직접 보내지 않고 outbox에 기록한다 (adrs/0005).
+        # Relay가 이후 실제로 Kafka로 전송한다.
+        _write_to_outbox(db, payload)
+        db.commit()
+        # outbox 경로에서는 raw_events에 저장하지 않으므로 id는 아직 없다.
         # 응답 스키마를 맞추기 위해 임시 id(0)로 에코한다.
         return EventOut(
             id=0,
@@ -133,7 +153,11 @@ def checkout(
         product.stock -= item.quantity
         product.total_purchase_count = (product.total_purchase_count or 0) + item.quantity
 
-        # 수량만큼 purchase 이벤트를 각각 기록 (이벤트 스키마는 단일 상품 단위)
+        # 수량만큼 purchase 이벤트를 각각 기록 (이벤트 스키마는 단일 상품 단위).
+        # Kafka로 직접 안 보내고 outbox에 기록한다 - 재고 차감과 같은
+        # 트랜잭션에 포함되어, 이 트랜잭션이 롤백되면 outbox 기록도
+        # 함께 사라진다. 이게 adrs/0005 에서 해결하려는 이중 쓰기
+        # 문제(Kafka는 나갔는데 재고는 롤백되는 것)의 핵심 수정이다.
         for _ in range(item.quantity):
             payload = {
                 "user_id": current_user.user_id,
@@ -143,7 +167,7 @@ def checkout(
                 "timestamp": now,
             }
             if kafka_producer.is_enabled():
-                kafka_producer.send_event(payload)
+                _write_to_outbox(db, payload)
             else:
                 # 폴백: use_kafka=False 이면 예전처럼 PostgreSQL에 직접 저장
                 db.add(RawEvent(**payload))
@@ -153,6 +177,19 @@ def checkout(
     # 장바구니 비우기 (이건 애플리케이션 상태라 항상 DB에서 처리)
     for item in cart_items:
         db.delete(item)
+
+    # 장애 주입 지점 (테스트 전용, adrs/0004-inventory-concurrency-control.md,
+    # adrs/0005-outbox-pattern.md 검증용). outbox 도입 전에는 이 지점에서
+    # 죽으면 "Kafka로 이미 보낸 이벤트 + 롤백된 재고"라는 이중 쓰기
+    # 불일치가 발생했다 (docs/perf/006-inventory-race.md 에서 실측 확인).
+    # outbox 도입 후에는 재고 차감 + outbox 기록이 같은 트랜잭션이라,
+    # 여기서 죽어도 둘 다 롤백되어 안전하다 - 이 지점을 그대로 남겨서
+    # 재검증할 수 있게 한다. 평소에는 이 플래그 파일이 없어서 영향이
+    # 전혀 없다.
+    chaos_flag_path = "/tmp/chaos_crash_before_commit"
+    if os.path.exists(chaos_flag_path):
+        os.remove(chaos_flag_path)
+        os._exit(1)  # 정상 종료 절차 없이 즉시 강제 종료 (실제 크래시와 동일)
 
     # 여기서 커밋되는 순간, 재고 차감/판매 카운트/장바구니 삭제가 전부
     # 한 번에 확정되고, 위에서 잡은 상품 행 락도 이때 함께 풀린다.

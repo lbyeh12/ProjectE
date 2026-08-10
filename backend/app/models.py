@@ -70,3 +70,24 @@ class RawEvent(Base):
     product_id = Column(String, nullable=True)
     price = Column(Float, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class OutboxEvent(Base):
+    """
+    Transactional Outbox 패턴 (adrs/0005-outbox-pattern.md).
+
+    Kafka로 직접 보내지 않고, 재고 차감 등 DB 변경과 같은 트랜잭션으로
+    이 테이블에 "보낼 이벤트"를 기록한다. 별도 Relay 프로세스
+    (scripts/outbox_relay.py)가 주기적으로 sent_at IS NULL 인 행을
+    찾아 Kafka로 전송하고 sent_at 을 채운다.
+
+    raw_events 와 역할이 다르다: raw_events 는 use_kafka=false 일 때의
+    최종 폴백 저장소이고, 이 테이블은 Kafka로 보내지기 전 잠깐
+    거쳐가는 대기열이다.
+    """
+    __tablename__ = "outbox_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payload = Column(String, nullable=False)   # JSON 문자열 (kafka_producer.send_event 에 넘기던 dict)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    sent_at = Column(DateTime, nullable=True)  # NULL 이면 아직 Kafka로 안 보낸 것
