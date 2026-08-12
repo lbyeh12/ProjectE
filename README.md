@@ -1,4 +1,4 @@
-# 실시간 사용자 행동 데이터 플랫폼
+# 전자상거래 데이터 플랫폼 구현
 
 전자상거래 웹 서비스를 직접 구축하고, 그 위에서 발생하는 사용자 행동 데이터를 실시간으로 수집·처리·분석하는 데이터 플랫폼 프로젝트입니다. React/FastAPI로 만든 서비스에서 발생한 이벤트가 Kafka → Spark Streaming을 거쳐 PostgreSQL에 실시간 집계되고, Airflow가 매일 배치로 DAU/전환율/매출 같은 지표를 집계합니다. 두 결과 모두 Streamlit 대시보드에서 확인할 수 있습니다.
 
@@ -13,8 +13,16 @@
    ▼
 React (Frontend)  ──POST /events──▶  FastAPI (Backend)
                                           │
-                                          ▼
-                                   Kafka (KRaft 모드, user-events 토픽)
+                             ┌────────────┼────────────┐
+                             ▼                          ▼
+                      outbox_events                  Redis
+                    (같은 DB 트랜잭션)          (멱등성 키 / Rate Limiting)
+                             │
+                             ▼
+                   Outbox Relay (폴링)
+                             │
+                             ▼
+                   Kafka (KRaft 모드, user-events 토픽)
                                           │
                                           ▼
                                    Spark Streaming (로컬 실행)
@@ -34,8 +42,14 @@ PostgreSQL ──▶ Streamlit 대시보드 (실시간 탭 + 배치 탭)
 
 [인프라]
 Docker Compose: postgres, kafka, kafka-ui, airflow(4개 컨테이너),
-                backend, frontend, dashboard
+                backend, outbox-relay, redis, frontend, dashboard,
+                prometheus, grafana, loki, promtail, postgres-exporter,
+                kafka-exporter
 Spark만 로컬에서 별도 실행 (Java 의존성 때문에 컨테이너화 제외)
+
+[부하 테스트 / 관측]
+k6 (smoke/load/stress + 재고 동시성 시나리오) → Prometheus/Grafana
+(메트릭) + Loki(로그)로 원인 분석
 ```
 
 ---
@@ -45,15 +59,17 @@ Spark만 로컬에서 별도 실행 (Java 의존성 때문에 컨테이너화 �
 | 영역 | 기술 |
 |---|---|
 | Frontend | React, TypeScript, Vite, React Router, TanStack Query, Zustand, Axios |
-| Backend | FastAPI, SQLAlchemy, kafka-python |
+| Backend | FastAPI, SQLAlchemy, kafka-python, redis-py |
 | Message Queue | Apache Kafka (KRaft 모드, Zookeeper 미사용) |
+| Cache / Idempotency | Redis (멱등성 키, Rate Limiting) |
 | Data Processing | Apache Spark 4.x (Structured Streaming) |
 | Workflow | Apache Airflow 3.x (LocalExecutor) |
 | Database | PostgreSQL 16 |
 | Dashboard | Streamlit |
+| Load Testing | k6 |
+| Monitoring | Prometheus, Grafana, Loki |
 | Container | Docker, Docker Compose |
 | Orchestration (예정) | Kubernetes |
-| Monitoring (예정) | Prometheus, Grafana |
 
 ---
 
@@ -79,7 +95,7 @@ UCI **Online Retail** 데이터셋(`ecommerce_data.csv`)을 기반으로 합니�
 
 `event_type`: `view`, `search`, `add_to_cart`, `purchase`, `refund`, `signup`, `login`
 
-모든 사용자 행동은 프론트엔드의 `trackEvent()` 함수 하나만 거쳐 `POST /events`로 전송됩니다. 백엔드는 이 이벤트를 Kafka로 전송하며(`use_kafka=False`일 때만 DB 직접 저장으로 폴백), 프론트엔드는 이 내부 구현과 무관하게 항상 동일한 인터페이스로 이벤트를 보냅니다.
+모든 사용자 행동은 프론트엔드의 `trackEvent()` 함수 하나만 거쳐 `POST /events`로 전송됩니다. 백엔드는 이 이벤트를 outbox_events 테이블에 기록하고(같은 DB 트랜잭션), Outbox Relay가 Kafka로 전송합니다(`use_kafka=False`일 때만 DB 직접 저장으로 폴백). 프론트엔드는 이 내부 구현과 무관하게 항상 동일한 인터페이스로 이벤트를 보냅니다.
 
 ---
 
@@ -87,13 +103,21 @@ UCI **Online Retail** 데이터셋(`ecommerce_data.csv`)을 기반으로 합니�
 
 ```
 project/
+├── adrs/                       # 아키텍처 결정 기록 (ADR)
+├── docs/perf/                   # 부하 테스트 결과 기록
+├── loadtest/k6/                  # k6 부하 테스트 (smoke/load/stress + 재고 동시성)
+├── monitoring/                    # Prometheus/Grafana/Loki 설정
 ├── frontend/                  # React 웹 서비스
 │   ├── Dockerfile
 │   └── src/
 ├── backend/                    # FastAPI (상품/장바구니/이벤트/구매 API, Kafka Producer)
 │   ├── Dockerfile
 │   ├── app/
-│   └── scripts/load_data.py     # products/users CSV → DB 적재
+│   │   ├── redis_client.py        # 멱등성 키 / Rate Limiting
+│   │   └── ...
+│   └── scripts/
+│       ├── load_data.py            # products/users CSV → DB 적재
+│       └── outbox_relay.py          # outbox_events → Kafka 전송
 ├── data/
 │   ├── preprocess.py              # 원본 CSV 전처리 + 행동 이벤트 합성
 │   └── dataset/                    # 원본 CSV + 전처리 결과물 (미포함, .gitignore)
@@ -181,6 +205,13 @@ docker compose ps               # 전부 healthy/running 인지 확인
 | Backend (FastAPI) | 8000 | REST API (http://localhost:8000/docs) |
 | Frontend (React) | 5173 | 웹 서비스 (http://localhost:5173) |
 | Dashboard (Streamlit) | 8501 | 대시보드 (http://localhost:8501) |
+| Prometheus | 9090 | 메트릭 수집 (http://localhost:9090) |
+| Grafana | 3000 | 모니터링 대시보드 (http://localhost:3000, admin/admin) |
+| postgres-exporter | 9187 | PostgreSQL 메트릭 (내부용) |
+| kafka-exporter | 9308 | Kafka consumer lag 메트릭 (내부용) |
+| Loki | 3100 | 로그 저장/조회 (Grafana에서 데이터소스로 접근, 직접 접속 불필요) |
+| outbox-relay | - | 포트 없음, outbox_events를 폴링해 Kafka로 전송 (adrs/0005) |
+| Redis | 6379 | 멱등성 키 저장소 (adrs/0006) |
 
 backend/frontend/dashboard는 코드 폴더를 볼륨 마운트하므로, 코드 수정 시 컨테이너 재빌드 없이 자동 반영됩니다(hot reload).
 
@@ -242,6 +273,38 @@ python simulator.py random --rate 10 --limit 1000
 
 ---
 
-## 7. 라이선스 및 데이터 출처
+## 7. 테스트
+
+```bash
+# 1. 테스트 전용 PostgreSQL 컨테이너 (로컬 개발 DB와 별도)
+docker run -d --name projecte-postgres-test \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=projecte_test \
+  -p 5432:5432 postgres:16
+
+# 2. 테스트 실행
+cd backend
+pytest
+```
+
+PR을 올리면 GitHub Actions(`.github/workflows/backend-ci.yml`)가 PostgreSQL 컨테이너를 자동으로 띄우고 동일한 테스트를 실행합니다. 테스트는 `USE_KAFKA=false`로 강제해서 Kafka 없이도 `/events`, `/purchase`의 DB 직접 저장 폴백 경로를 검증합니다.
+
+---
+
+## 8. 부하 테스트 / 아키텍처 결정 기록
+
+```bash
+k6 run loadtest/k6/smoke.js    # 기본 동작 확인
+k6 run loadtest/k6/load.js     # 목표 트래픽
+k6 run loadtest/k6/stress.js   # 한계치 탐색
+```
+
+재고 동시성/장애 주입 시나리오는 `loadtest/k6/README.md` 참고.
+
+- `adrs/`: 도구/구조 선정 등 주요 의사결정과 이유
+- `docs/perf/`: 부하 테스트 결과와 발견한 병목 기록
+
+---
+
+## 9. 라이선스 및 데이터 출처
 
 데이터셋은 UCI Machine Learning Repository의 Online Retail 데이터셋을 가공하여 사용합니다. 이 저장소에는 원본 데이터가 포함되어 있지 않습니다.

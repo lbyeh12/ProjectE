@@ -117,3 +117,16 @@ def check_rate_limit(bucket: str, identifier: str, limit: int, window_seconds: i
         # 버려, 고정 윈도우의 의도(일정 시간마다 리셋)와 달라진다.
         _client.expire(redis_key, window_seconds)
     return count <= limit
+
+
+def flush_all() -> None:
+    """
+    현재 연결된 Redis DB의 모든 키를 지운다. 테스트 전용 - 각 테스트
+    함수 사이에 멱등성 키/Rate Limit 카운터가 남아있으면 테스트끼리
+    서로 간섭한다 (예: 로그인 테스트를 여러 번 하면 같은 user_id의
+    Rate Limit 카운터가 누적되어, 관련 없는 다른 테스트가 429를 받는
+    문제가 생길 수 있다). DB 트랜잭션 롤백(conftest.py)과 달리 Redis는
+    그 롤백의 영향을 안 받으므로 별도로 정리해야 한다.
+    """
+    if _client is not None:
+        _client.flushdb()
