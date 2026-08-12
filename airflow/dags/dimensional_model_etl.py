@@ -30,6 +30,8 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sensors.external_task import ExternalTaskSensor
 
+from dag_common import DEFAULT_ARGS, notify_failure_slack
+
 CONN_ID = "projecte_db"
 
 
@@ -236,6 +238,8 @@ with DAG(
     schedule="@daily",
     start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
     catchup=False,
+    default_args=DEFAULT_ARGS,
+    on_failure_callback=notify_failure_slack,
     tags=["projecte", "batch", "dimensional-model"],
 ) as dag:
 
@@ -249,8 +253,12 @@ with DAG(
         external_dag_id="data_quality_check",
         external_task_id="validate_events",
         allowed_states=["success"],
-        timeout=600,
+        timeout=600,   # 10분 안에 못 끝나면 이번 시도는 실패
         poke_interval=30,
+        # default_args의 retries=3 이 이 센서에도 적용된다: 10분 대기 후
+        # 실패하면, 5분 쉬고 다시 최대 10분씩 최대 3번 더 기다린다.
+        # data_quality_check가 예상보다 오래 걸리는 상황을 자동으로
+        # 감내할 수 있게 해주는 부수 효과라 그대로 둔다.
     )
 
     t1 = PythonOperator(task_id="ensure_dimensional_tables", python_callable=ensure_dimensional_tables)

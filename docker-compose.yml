@@ -133,6 +133,11 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
       # 비밀번호를 고정하기 위해 미리 만든 파일 지정 (매번 랜덤 생성 방지)
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
+      # 파이프라인 실패 알림 (adrs/0010-airflow-pipeline-reliability.md).
+      # 호스트에 SLACK_WEBHOOK_URL이 없으면 빈 문자열이 전달되고,
+      # dag_common.notify_failure_slack()이 이를 "미설정"으로 보고
+      # 콘솔 로그만 남긴다 - Slack 계정 없이도 클론해서 바로 실행 가능.
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs

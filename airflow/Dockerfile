@@ -14,3 +14,9 @@ RUN pip install --no-cache-dir apache-airflow-providers-postgres
 # 최신 1.x대(numpy 2.x 호환 버그 수정이 이미 반영됨)로 바꿔서 해결한다.
 # pandas는 이미 설치되어 있으므로 별도로 다시 설치하지 않는다.
 RUN pip install --no-cache-dir "great_expectations==1.20.0"
+
+# 파이프라인 안정성 (adrs/0010-airflow-pipeline-reliability.md).
+# Slack 알림에 필요. Airflow 코어가 내부적으로 requests에 의존하는
+# 경우가 많아 이미 있을 가능성이 높지만, GE 버전 사태로 "가정하지
+# 말고 명시적으로 설치"하기로 했으므로 여기 명시한다.
+RUN pip install --no-cache-dir requests

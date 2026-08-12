@@ -34,6 +34,8 @@ from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
+from dag_common import DEFAULT_ARGS, notify_failure_slack
+
 CONN_ID = "projecte_db"
 
 
@@ -149,6 +151,8 @@ with DAG(
     schedule="@daily",
     start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
     catchup=False,
+    default_args=DEFAULT_ARGS,
+    on_failure_callback=notify_failure_slack,
     tags=["projecte", "batch", "data-quality"],
 ) as dag:
 

@@ -25,6 +25,8 @@ from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
+from dag_common import DEFAULT_ARGS, notify_failure_slack
+
 # raw_events 가 들어있는 애플리케이션 DB에 연결하기 위한 Airflow Connection ID.
 # docker-compose 에서 환경변수(AIRFLOW_CONN_PROJECTE_DB)로 주입한다.
 CONN_ID = "projecte_db"
@@ -150,7 +152,14 @@ with DAG(
     description="raw_events 기반 일별 지표(DAU/전환율/매출) 집계",
     schedule="@daily",                       # 매일 1회
     start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
-    catchup=False,                            # 과거 날짜 소급 실행 안 함
+    catchup=False,                            # 자동으로 과거를 소급 실행하진 않지만,
+                                               # Airflow UI에서 특정 과거 날짜를 골라
+                                               # 수동으로 재실행(backfill)하는 건 그대로
+                                               # 가능하다 - 각 태스크가 이미 특정 날짜
+                                               # (ds/execution_date) 기준으로 동작하고
+                                               # 멱등적으로 짜여 있어서 안전하다.
+    default_args=DEFAULT_ARGS,                # 재시도 3회, 5분 간격 (adrs/0010)
+    on_failure_callback=notify_failure_slack, # 재시도 소진 시 Slack 알림
     tags=["projecte", "batch", "metrics"],
 ) as dag:
 
