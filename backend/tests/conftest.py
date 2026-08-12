@@ -22,6 +22,8 @@ import os
 # 따라서 app 모듈을 import 하기 "전에" 반드시 여기서 환경변수를 먼저 설정해야 한다.
 os.environ.setdefault("USE_KAFKA", "false")
 os.environ.setdefault("JWT_SECRET_KEY", "test-only-secret-key-not-for-production")
+# 개발용 DB(0번)와 겹치지 않게 별도 인덱스(1번) 사용.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/1")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,10 +32,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
+from app import redis_client
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg2://postgres:postgres@localhost:5433/projecte_test",
+    "postgresql+psycopg2://postgres:postgres@localhost:5432/projecte_test",
 )
 
 engine = create_engine(TEST_DATABASE_URL)
@@ -65,6 +68,29 @@ def db_session():
     connection.close()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_redis(client):
+    """
+    Redis는 DB 트랜잭션 롤백(위 db_session fixture)의 영향을 받지 않으므로,
+    멱등성 키/Rate Limit 카운터가 테스트 함수 사이에 그대로 남아 서로
+    간섭할 수 있다 (예: 로그인 테스트를 여러 번 하면 같은 user_id의
+    Rate Limit 카운터가 쌓여 무관한 다른 테스트가 429를 받는 문제).
+    매 테스트 전후로 비워서 격리한다.
+
+    client 를 인자로 받아 의존성을 명시하는 게 중요하다: pytest는
+    fixture teardown을 설정의 역순으로 실행하는데, 이 의존성이 없으면
+    client fixture(앱 종료 시 redis_client.close_client() 호출 ->
+    _client = None)가 먼저 정리된 뒤에 이 fixture의 flush_all() 이
+    실행되어, "_client가 없다"며 조용히 아무것도 안 지우는 상태가 된다
+    (실제로 이 버그로 여러 테스트가 서로 간섭하는 걸 확인했다).
+    client에 의존하게 하면 teardown이 반드시 "flush 먼저, 연결 종료는
+    나중"의 순서로 실행된다.
+    """
+    redis_client.flush_all()
+    yield
+    redis_client.flush_all()
+
+
 @pytest.fixture()
 def client(db_session):
     """
@@ -94,6 +120,9 @@ def sample_product(db_session):
         description="테스트 상품",
         price=9.99,
         total_purchase_count=0,
+        # 재고 동시성 제어(adrs/0004) 도입 이후 필수 컬럼. 여러 테스트가
+        # 이 상품으로 구매를 시도하므로 충분히 넉넉하게 잡는다.
+        stock=100,
     )
     db_session.add(product)
     db_session.commit()
