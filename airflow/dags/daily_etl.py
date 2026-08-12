@@ -44,6 +44,21 @@ def ensure_table(**_):
             revenue       DOUBLE PRECISION,
             event_count   BIGINT
         );
+
+        -- data_quality_check DAG(adrs/0009)이 소유한 테이블이지만,
+        -- 이 DAG이 그보다 먼저 실행돼도 아래 쿼리가 깨지지 않도록
+        -- 여기서도 동일하게 보장해둔다(idempotent CREATE IF NOT EXISTS
+        -- 라 두 DAG이 서로 다른 순서로 실행돼도 안전하다).
+        CREATE TABLE IF NOT EXISTS quarantine_events (
+            source_event_id  BIGINT PRIMARY KEY,
+            user_id          INTEGER,
+            event_type       TEXT,
+            product_id       TEXT,
+            price            DOUBLE PRECISION,
+            timestamp        TIMESTAMP,
+            quarantine_reason TEXT NOT NULL,
+            quarantined_at   TIMESTAMP NOT NULL DEFAULT now()
+        );
         """
     )
 
@@ -61,8 +76,19 @@ def compute_metrics(**context):
     sql = """
         WITH day_events AS (
             SELECT *
-            FROM raw_events
+            FROM raw_events re
             WHERE timestamp::date = %(ds)s
+              AND NOT EXISTS (
+                  -- adrs/0009-data-quality-validation.md: 격리된 이벤트는
+                  -- 운영 지표(DAU/전환율/매출)에도 반영하지 않는다.
+                  -- 이 DAG은 data_quality_check와 하드 의존성(센서)을
+                  -- 걸지 않고, "그 시점 quarantine_events 테이블 상태
+                  -- 기준으로 최선을 다해 제외"하는 정도로만 다룬다 -
+                  -- 운영 대시보드용 요약이라 dimensional_model_etl의
+                  -- fact_events(분석 레이어, 엄격한 순서 보장)보다는
+                  -- 낮은 엄격도로 충분하다고 판단했다.
+                  SELECT 1 FROM quarantine_events qe WHERE qe.source_event_id = re.id
+              )
         )
         SELECT
             COUNT(DISTINCT user_id)                                          AS dau,
