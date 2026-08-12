@@ -25,6 +25,8 @@ from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
+from dag_common import DEFAULT_ARGS, notify_failure_slack
+
 # raw_events 가 들어있는 애플리케이션 DB에 연결하기 위한 Airflow Connection ID.
 # docker-compose 에서 환경변수(AIRFLOW_CONN_PROJECTE_DB)로 주입한다.
 CONN_ID = "projecte_db"
@@ -44,6 +46,21 @@ def ensure_table(**_):
             revenue       DOUBLE PRECISION,
             event_count   BIGINT
         );
+
+        -- data_quality_check DAG(adrs/0009)이 소유한 테이블이지만,
+        -- 이 DAG이 그보다 먼저 실행돼도 아래 쿼리가 깨지지 않도록
+        -- 여기서도 동일하게 보장해둔다(idempotent CREATE IF NOT EXISTS
+        -- 라 두 DAG이 서로 다른 순서로 실행돼도 안전하다).
+        CREATE TABLE IF NOT EXISTS quarantine_events (
+            source_event_id  BIGINT PRIMARY KEY,
+            user_id          INTEGER,
+            event_type       TEXT,
+            product_id       TEXT,
+            price            DOUBLE PRECISION,
+            timestamp        TIMESTAMP,
+            quarantine_reason TEXT NOT NULL,
+            quarantined_at   TIMESTAMP NOT NULL DEFAULT now()
+        );
         """
     )
 
@@ -61,8 +78,19 @@ def compute_metrics(**context):
     sql = """
         WITH day_events AS (
             SELECT *
-            FROM raw_events
+            FROM raw_events re
             WHERE timestamp::date = %(ds)s
+              AND NOT EXISTS (
+                  -- adrs/0009-data-quality-validation.md: 격리된 이벤트는
+                  -- 운영 지표(DAU/전환율/매출)에도 반영하지 않는다.
+                  -- 이 DAG은 data_quality_check와 하드 의존성(센서)을
+                  -- 걸지 않고, "그 시점 quarantine_events 테이블 상태
+                  -- 기준으로 최선을 다해 제외"하는 정도로만 다룬다 -
+                  -- 운영 대시보드용 요약이라 dimensional_model_etl의
+                  -- fact_events(분석 레이어, 엄격한 순서 보장)보다는
+                  -- 낮은 엄격도로 충분하다고 판단했다.
+                  SELECT 1 FROM quarantine_events qe WHERE qe.source_event_id = re.id
+              )
         )
         SELECT
             COUNT(DISTINCT user_id)                                          AS dau,
@@ -124,7 +152,14 @@ with DAG(
     description="raw_events 기반 일별 지표(DAU/전환율/매출) 집계",
     schedule="@daily",                       # 매일 1회
     start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
-    catchup=False,                            # 과거 날짜 소급 실행 안 함
+    catchup=False,                            # 자동으로 과거를 소급 실행하진 않지만,
+                                               # Airflow UI에서 특정 과거 날짜를 골라
+                                               # 수동으로 재실행(backfill)하는 건 그대로
+                                               # 가능하다 - 각 태스크가 이미 특정 날짜
+                                               # (ds/execution_date) 기준으로 동작하고
+                                               # 멱등적으로 짜여 있어서 안전하다.
+    default_args=DEFAULT_ARGS,                # 재시도 3회, 5분 간격 (adrs/0010)
+    on_failure_callback=notify_failure_slack, # 재시도 소진 시 Slack 알림
     tags=["projecte", "batch", "metrics"],
 ) as dag:
 
