@@ -17,6 +17,15 @@ raw_events 를 Star Schema(dim_date/dim_product/dim_user + fact_events)로
   2. load_dim_date             : 대상 날짜의 dim_date 행 upsert
   3. load_dim_scd2             : dim_product/dim_user를 Type 2 SCD로 갱신
   4. load_fact_events          : raw_events -> fact_events 변환 적재
+  5. trigger_export_to_s3      : export_to_s3 DAG을 자동으로 실행
+
+data_quality_check DAG이 끝나면 이 DAG을 TriggerDagRunOperator로 자동
+실행시킨다(그 DAG 파일 참고). 처음엔 ExternalTaskSensor로 두 DAG의
+logical_date가 "정확히 같을 때"만 연결되게 했는데, 수동으로 각 DAG을
+서로 다른 시각에 트리거하면 영원히 대기하는 문제를 겪어서, 체인 방식
+(끝나면 다음을 직접 실행)으로 바꿨다. 이 DAG 자체를 단독으로 수동
+실행해도 문제없이 동작한다(그 경우 quarantine_events가 그날 아직
+비어있을 수 있다는 것만 감안).
 
 모든 단계는 같은 날짜(ds)에 대해 여러 번 실행돼도 결과가 같아야
 한다(멱등성, adrs/0010-airflow-pipeline-reliability.md 에서 재시도를
@@ -27,8 +36,8 @@ from __future__ import annotations
 import pendulum
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.sensors.external_task import ExternalTaskSensor
 
 from dag_common import DEFAULT_ARGS, notify_failure_slack
 
@@ -243,34 +252,22 @@ with DAG(
     tags=["projecte", "batch", "dimensional-model"],
 ) as dag:
 
-    # data_quality_check DAG이 같은 논리 날짜(execution_date)에 대해
-    # 끝날 때까지 대기 (adrs/0009-data-quality-validation.md). 두 DAG을
-    # 독립적으로 재실행/모니터링할 수 있게 분리했으므로, 순서 보장은
-    # 이 센서로 명시적으로 건다 - 그래야 load_fact_events가 참조하는
-    # quarantine_events가 그날 검증까지 반영된 최신 상태임을 보장한다.
-    wait_for_quality_check = ExternalTaskSensor(
-        task_id="wait_for_quality_check",
-        external_dag_id="data_quality_check",
-        external_task_id="validate_events",
-        allowed_states=["success"],
-        timeout=600,   # 10분 안에 못 끝나면 이번 시도는 실패
-        poke_interval=30,
-        # default_args의 retries=3 이 이 센서에도 적용된다: 10분 대기 후
-        # 실패하면, 5분 쉬고 다시 최대 10분씩 최대 3번 더 기다린다.
-        # data_quality_check가 예상보다 오래 걸리는 상황을 자동으로
-        # 감내할 수 있게 해주는 부수 효과라 그대로 둔다.
-    )
-
     t1 = PythonOperator(task_id="ensure_dimensional_tables", python_callable=ensure_dimensional_tables)
     t2 = PythonOperator(task_id="load_dim_date", python_callable=load_dim_date)
     t3 = PythonOperator(task_id="load_dim_scd2", python_callable=load_dim_scd2)
     t4 = PythonOperator(task_id="load_fact_events", python_callable=load_fact_events)
 
+    # 이 DAG이 끝나면 export_to_s3를 자동으로 실행시킨다 (같은 이유로
+    # ExternalTaskSensor 대신 체인 방식을 쓴다 - 위 docstring 참고).
+    trigger_next = TriggerDagRunOperator(
+        task_id="trigger_export_to_s3",
+        trigger_dag_id="export_to_s3",
+        logical_date="{{ logical_date }}",
+        wait_for_completion=False,
+    )
+
     # dim_date/dim_scd2 는 서로 독립적이라 병렬 실행 가능,
     # 둘 다 끝난 뒤에 fact_events 적재(차원 키가 준비되어 있어야 함 -
     # fact_events.date_key 가 dim_date를 FK로 참조하므로, load_dim_date가
     # 먼저 그 날짜 행을 넣어두지 않으면 FK 제약 위반으로 insert가 실패한다).
-    # quarantine_events를 참조하는 load_fact_events는 품질 검증 완료
-    # 이후에만 실행되어야 하므로 센서도 함께 건다.
-    t1 >> [t2, t3]
-    [t2, t3, wait_for_quality_check] >> t4
+    t1 >> [t2, t3] >> t4 >> trigger_next

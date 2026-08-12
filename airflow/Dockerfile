@@ -20,3 +20,10 @@ RUN pip install --no-cache-dir "great_expectations==1.20.0"
 # 경우가 많아 이미 있을 가능성이 높지만, GE 버전 사태로 "가정하지
 # 말고 명시적으로 설치"하기로 했으므로 여기 명시한다.
 RUN pip install --no-cache-dir requests
+
+# AWS 클라우드 연동 (adrs/0011-aws-data-lake-integration.md).
+# apache-airflow-providers-amazon 은 boto3를 함께 설치하고 S3Hook 등을
+# 제공한다 - PostgresHook을 쓸 때처럼, raw boto3 호출보다 Airflow의
+# provider/hook 계층을 통해 일관되게 다룬다. pyarrow는 pandas가
+# Parquet 파일을 쓰기 위해 필요하다.
+RUN pip install --no-cache-dir apache-airflow-providers-amazon pyarrow

@@ -138,6 +138,14 @@ services:
       # dag_common.notify_failure_slack()이 이를 "미설정"으로 보고
       # 콘솔 로그만 남긴다 - Slack 계정 없이도 클론해서 바로 실행 가능.
       SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      # AWS 데이터 레이크 연동 (adrs/0011-aws-data-lake-integration.md).
+      # 호스트 셸에 이 값들이 없으면 빈 문자열이 전달되고, export_to_s3
+      # DAG의 태스크만 명확한 에러로 실패한다 - AWS 계정이 없어도
+      # 나머지 파이프라인(로컬 전체)은 이 DAG과 무관하게 정상 동작한다.
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-ap-northeast-2}"
+      S3_BUCKET_NAME: "${S3_BUCKET_NAME:-projecte-data-lake}"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs

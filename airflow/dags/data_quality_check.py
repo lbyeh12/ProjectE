@@ -32,6 +32,7 @@ import pandas as pd
 import pendulum
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 from dag_common import DEFAULT_ARGS, notify_failure_slack
@@ -159,4 +160,19 @@ with DAG(
     t1 = PythonOperator(task_id="ensure_quarantine_table", python_callable=ensure_quarantine_table)
     t2 = PythonOperator(task_id="validate_events", python_callable=validate_events)
 
-    t1 >> t2
+    # 검증이 끝나면 dimensional_model_etl을 바로 자동으로 실행시킨다.
+    # 처음엔 ExternalTaskSensor로 두 DAG을 나중에 맞춰 연결하는 방식을
+    # 썼는데, 이 방식은 "정확히 같은 logical_date(초 단위까지 일치)"를
+    # 요구해서, 수동으로 각 DAG을 서로 다른 시각에 트리거하면 센서가
+    # 영원히 대기하는 문제를 실제로 겪었다. TriggerDagRunOperator로
+    # "이 DAG이 끝나면 다음 DAG을 직접 실행시키는" 체인으로 바꾸면,
+    # 사람이 맨 앞의 DAG 하나만 트리거해도 나머지가 자동으로 이어져서
+    # 이 문제 자체가 생기지 않는다.
+    trigger_next = TriggerDagRunOperator(
+        task_id="trigger_dimensional_model_etl",
+        trigger_dag_id="dimensional_model_etl",
+        logical_date="{{ logical_date }}",  # 같은 논리 날짜를 그대로 전달
+        wait_for_completion=False,  # "실행시키기"만 하고 바로 끝남 (fire-and-forget)
+    )
+
+    t1 >> t2 >> trigger_next
