@@ -14,25 +14,21 @@ import { Counter } from "k6/metrics";
 import { BASE_URL } from "../lib/config.js";
 
 // 테스트 대상 상품. 환경변수로 지정하고, 없으면 흔한 UCI 데이터셋
-// 상품 코드를 기본값으로 둔다 (실제 존재 여부는 seed된 데이터셋에 따라 다름 -
-// 반드시 setup_inventory_test.sql 로 재고를 세팅할 때 쓴 상품과 같아야 한다).
+// 상품 코드를 기본값으로 둔다 (반드시 setup_inventory_test.sql 로 재고를
+// 세팅할 때 쓴 상품과 같아야 한다).
 export const TARGET_PRODUCT_ID = __ENV.TARGET_PRODUCT_ID || "85123A";
 
 // 구매 결과를 종류별로 정확히 세기 위한 커스텀 카운터.
-// k6의 기본 check()만 쓰면 "네트워크 레벨 장애"(연결 끊김/타임아웃)일 때
-// r.status 가 0 이 되는데, `status < 500` 같은 조건은 0도 참이 되어
-// "성공"으로 잘못 집계된다 (실제로 이 버그를 검증 중에 발견함).
-// 장애 주입 시나리오(2, 3번)에서는 바로 이 구간이 핵심 관찰 대상이라
-// 명확하게 분리된 카운터로 추적한다.
+// k6의 기본 check()만 쓰면 네트워크 레벨 장애(연결 끊김/타임아웃)일 때
+// r.status가 0이 되는데, `status < 500` 같은 조건은 0도 참이 되어
+// "성공"으로 잘못 집계된다. 장애 주입 시나리오(2, 3번)에서는 이 구간이
+// 핵심 관찰 대상이라 명확하게 분리된 카운터로 추적한다.
 export const purchaseSuccess = new Counter("purchase_success");        // 200
 export const purchaseRejected = new Counter("purchase_rejected_409");  // 409, 재고부족 정상 거절
 export const purchaseServerError = new Counter("purchase_server_error"); // 5xx, 서버가 응답은 했지만 에러
 export const purchaseConnectionDropped = new Counter("purchase_connection_dropped"); // 0, 연결 자체가 끊김 (장애 상황의 핵심 신호)
-// 200/409/5xx/0 중 어느 것도 아닌 "그 외" 상태(400, 401, 404 등).
-// 실제로 400(장바구니가 비어 있습니다)이 여기 잡힌 적이 있었다 - 원인은
-// cartRes.status !== 200 일 때 조용히 return 하는 지점이 아니라, 장바구니
-// 담기(POST /cart) 자체는 성공했는데 그 이후 다른 이유로 비어 있던 경우로
-// 추정된다. 카운터로 잡아서 놓치지 않게 하고, body도 같이 로그로 남긴다.
+// 200/409/5xx/0 어디에도 안 걸리는 "그 외" 상태(400, 401, 404 등).
+// 놓치지 않도록 카운터로 잡고, body도 같이 로그로 남긴다.
 export const purchaseUnexpectedStatus = new Counter("purchase_unexpected_status");
 
 /**
@@ -45,14 +41,11 @@ export function inventoryRace(data) {
     sleep(0.5);
     return;
   }
-  // 이 시나리오는 "서로 다른 N명이 재고를 동시에 노리는" 상황을
-  // 재현하려는 목적이라, 계정을 무작위로 뽑으면 같은 계정이 여러 VU에
-  // 겹쳐 뽑힐 수 있다 (실제로 이 때문에 "A가 구매 완료해 장바구니를
-  // 비운 직후 B가 빈 장바구니로 구매를 시도해 400"이 나는 걸 확인함).
-  // VU 번호로 계정을 고정 배정해서, 정확히 "VU 수만큼의 서로 다른
-  // 사람"이 경쟁하는 상황을 만든다. (다른 시나리오(browse/purchase_flow)
-  // 에서는 반대로 "같은 사용자 반복 재사용"을 피하려고 무작위 선택을
-  // 썼었는데, 여긴 목적이 다르다 - 코드 주석을 헷갈리지 않게 남겨둔다.)
+  // "서로 다른 N명이 재고를 동시에 노리는" 상황을 재현하려는 목적이라,
+  // 계정을 무작위로 뽑으면 같은 계정이 여러 VU에 겹쳐 뽑힐 수 있다
+  // (겹치면 한쪽이 빈 장바구니로 구매를 시도해 400이 난다). VU 번호로
+  // 계정을 고정 배정해서 정확히 "VU 수만큼의 서로 다른 사람"이 경쟁하게
+  // 한다. (다른 시나리오는 반대로 무작위 선택을 쓴다 — 목적이 다르다.)
   const user = users[(__VU - 1) % users.length];
 
   // 1. 로그인
@@ -71,22 +64,15 @@ export function inventoryRace(data) {
   };
 
   // 2. 오직 타겟 상품만, 정확히 수량 1로 장바구니에 담는다.
-  //    이전에는 매 시도 전에 http.del()로 장바구니를 비웠는데, 이게
-  //    "이 계정이 이전 테스트에서 다른 상품을 장바구니에 남겨뒀을 가능성"
-  //    같은 변수를 오히려 코드 안에서 숨기고 있었다. 대신 테스트 실행
-  //    "전에" clear_all_carts.sql 로 모든 사용자의 장바구니를 한 번에
-  //    비우고 시작하는 방식으로 바꿨다 — 어떤 상태에서 시작하는지가
-  //    스크립트 흐름과 분리되어 더 명확해진다.
+  //    장바구니 초기화는 스크립트 흐름과 분리해 테스트 실행 "전에"
+  //    clear_all_carts.sql 로 한 번에 처리한다 (README 참고).
   const cartRes = http.post(
     `${BASE_URL}/cart`,
     JSON.stringify({ product_id: TARGET_PRODUCT_ID, quantity: 1 }),
     authHeaders
   );
   if (cartRes.status !== 200) {
-    // 이 지점에서 조용히 return 하면 "장바구니 실패"가 결과 집계 어디에도
-    // 안 남아서, checks_total 개수와 우리 카운터 합계가 안 맞는 원인을
-    // 알 수 없게 된다 (실제로 이런 불일치를 검증 중 겪었다). 반드시 로그로
-    // 남긴다.
+    // 조용히 return 하면 결과 집계 어디에도 안 남으므로 반드시 로그로 남긴다.
     console.warn(
       `[inventory_race] 장바구니 담기 실패: status=${cartRes.status} body=${cartRes.body}`
     );

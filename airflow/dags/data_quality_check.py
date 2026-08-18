@@ -7,14 +7,11 @@ raw_events 원본은 건드리지 않는다 - "원본 로그는 손대지 않는
 대신 다운스트림(dimensional_model_etl, daily_etl)이 격리된
 source_event_id 를 걸러내고 읽도록 한다.
 
-검증 규칙은 Great Expectations(1.x, Fluent/Core API)로 선언하고,
-위반 건수 리포트를 로그로 남긴다. GE 호출은 try/except로 감싸서,
-API 버전 차이 등으로 GE 쪽이 실패해도 격리 로직 자체는 항상
-정상 동작한다 - GE는 "있으면 좋은 리포트"이지 격리 기능의 필수
-전제가 아니다. "정확히 어느 행을 격리할지"는 pandas 불리언 마스크로
-직접 판정한다 - GE의 결과 딕셔너리 구조에 격리라는 중요한 동작을
-의존시키지 않기로 했다. 즉 GE는 "규칙을 선언하고 위반을 리포트하는"
-역할, 격리 판정 자체는 이 마스크가 담당하도록 역할을 나눴다.
+검증 규칙은 Great Expectations(1.x, Fluent/Core API)로 선언하고
+위반 건수를 로그로 리포트한다. GE는 "규칙 선언 + 리포트" 역할만
+맡고, "정확히 어느 행을 격리할지"는 pandas 불리언 마스크가 별도로
+판정한다 - GE 호출은 try/except로 감싸 API 버전 차이 등으로
+실패해도 격리 로직에는 영향이 없게 한다 (docs/perf/012 참고).
 
 검증 규칙:
   - price >= 0
@@ -79,12 +76,6 @@ def validate_events(**context):
     now = pd.Timestamp.utcnow().tz_localize(None)
 
     # --- Great Expectations: 규칙을 선언적으로 검증하고 위반 건수를 리포트 ---
-    # GE 1.x(Fluent/Core API)를 쓴다. 이 환경에서 정확한 API 동작을
-    # 사전에 실행 검증할 수 없어서(네트워크 제약), 혹시 API가 조금
-    # 달라져 있어도 아래 try/except가 실패를 흡수해 로그만 남기고,
-    # 핵심 로직(바로 다음의 pandas 격리 판정)은 GE 성공 여부와 무관하게
-    # 항상 그대로 실행되게 만들었다 - GE는 "있으면 좋은 리포트"이지
-    # 격리 기능의 필수 전제가 아니다.
     try:
         import great_expectations as gx
 
@@ -161,13 +152,8 @@ with DAG(
     t2 = PythonOperator(task_id="validate_events", python_callable=validate_events)
 
     # 검증이 끝나면 dimensional_model_etl을 바로 자동으로 실행시킨다.
-    # 처음엔 ExternalTaskSensor로 두 DAG을 나중에 맞춰 연결하는 방식을
-    # 썼는데, 이 방식은 "정확히 같은 logical_date(초 단위까지 일치)"를
-    # 요구해서, 수동으로 각 DAG을 서로 다른 시각에 트리거하면 센서가
-    # 영원히 대기하는 문제를 실제로 겪었다. TriggerDagRunOperator로
-    # "이 DAG이 끝나면 다음 DAG을 직접 실행시키는" 체인으로 바꾸면,
-    # 사람이 맨 앞의 DAG 하나만 트리거해도 나머지가 자동으로 이어져서
-    # 이 문제 자체가 생기지 않는다.
+    # ExternalTaskSensor(logical_date 일치 요구) 대신 체인 방식을 쓴
+    # 이유는 docs/perf/013-dag-dependency-chain.md 참고.
     trigger_next = TriggerDagRunOperator(
         task_id="trigger_dimensional_model_etl",
         trigger_dag_id="dimensional_model_etl",

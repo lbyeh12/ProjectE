@@ -59,30 +59,16 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.user_id == req.user_id).first()
 
-    # DB에서 필요한 값(hashed_password)만 파이썬 변수로 즉시 꺼내둔다.
-    # 이 시점 이후로는 user(ORM 객체)를 더 이상 건드리지 않는다 -> 뒤이어
-    # 오는 bcrypt 검증(CPU 집약적, 느림) 동안 DB 트랜잭션이 불필요하게
-    # 열려있지 않게 하기 위함이다.
-    #
-    # 이전에는 `if not user or ... or not verify_password(...)` 한 줄에
-    # DB 접근과 bcrypt 호출이 섞여 있었는데, 대량 동시 로그인 부하
-    # 테스트에서 이 때문에 세션이 bcrypt 처리 시간만큼 idle in
-    # transaction 상태로 방치되는 문제가 확인됐다
-    # (docs/perf/002-stress-test.md 참고, idle_duration 최대 3분 17초 관찰).
+    # 필요한 값만 변수로 꺼내고 user(ORM 객체)는 더 이상 건드리지 않는다.
+    # DB 조회와 bcrypt 검증(CPU 집약적, 느림)이 한 줄에 섞여 있으면 그
+    # 동안 트랜잭션이 "idle in transaction" 상태로 방치되어 락 대기를
+    # 유발할 수 있다 (docs/perf/002-stress-test.md). 조회만 했으니 바로
+    # commit 해서 트랜잭션을 끝낸다 — 이후로는 DB를 전혀 건드리지 않는다.
     user_exists = user is not None
     hashed_password = user.hashed_password if user_exists else None
     user_id = user.user_id if user_exists else None
-
-    # 값만 변수로 뽑아둔다고 트랜잭션이 끝나는 게 아니다 (SQLAlchemy는
-    # commit/rollback을 명시적으로 호출해야 트랜잭션을 닫는다). 조회만
-    # 했고 아무것도 안 바꿨으니 commit을 호출해서 트랜잭션을 즉시
-    # 종료한다. 이렇게 해야 뒤이어 오는 bcrypt 검증(느림) 동안
-    # PostgreSQL에서 "idle in transaction" 상태로 락을 들고 방치되는
-    # 일이 없다 (idle in transaction 은 자동 vacuum을 막고, 다른
-    # 트랜잭션의 락 대기를 유발할 수 있다).
     db.commit()
 
-    # 여기서부터는 DB를 전혀 건드리지 않는다. bcrypt 검증만 수행.
     password_ok = hashed_password is not None and verify_password(req.password, hashed_password)
 
     # 사용자가 없거나 비밀번호가 틀린 경우를 구분해서 알려주지 않는다.

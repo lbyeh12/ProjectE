@@ -50,8 +50,7 @@ export const options = {
 export function setup() {
   // purchase_traffic 시나리오의 최대 VU는 20이지만, 계정을 VU 수만큼만
   // 준비하면 같은 계정을 여러 iteration이 동시에 쓰다가 "장바구니가
-  // 비었다"(400)는 레이스 컨디션이 생긴다 (1차 부하 테스트에서 실제로
-  // 관찰됨: 21%가 이 이유로 실패). VU 수보다 넉넉하게 준비해서
-  // 동시 충돌 확률을 낮춘다.
+  // 비었다"(400)는 레이스 컨디션이 생긴다 (docs/perf/001-baseline.md).
+  // VU 수보다 넉넉하게 준비해서 동시 충돌 확률을 낮춘다.
   return { users: prepareTestUsers(50) };
 }

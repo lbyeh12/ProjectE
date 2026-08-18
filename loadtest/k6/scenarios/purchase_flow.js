@@ -12,11 +12,10 @@ import { BASE_URL } from "../lib/config.js";
  * 준비된 테스트 계정이 없으면(시드 실패) 이 VU 이터레이션은 조용히 스킵한다.
  *
  * 계정은 "VU 번호로 고정 배정"이 아니라 "매 iteration마다 무작위로 선택"한다.
- * VU 고정 배정 방식은, 같은 VU가 이전 구매(장바구니 비우기)를 마치기 전에
- * 다음 iteration이 겹쳐 시작되면 "장바구니가 비어 있습니다"(400)가 나는
- * 레이스 컨디션이 있었다 (실제로 1차 부하 테스트에서 관찰됨,
- * docs/perf/001-baseline.md 참고). 무작위 선택 + 넉넉한 계정 수(VU 대비 여유)로
- * 같은 계정이 동시에 여러 iteration에서 쓰일 확률을 낮춘다.
+ * VU 고정 배정 방식은, 같은 VU의 이전 구매가 끝나기 전에 다음 iteration이
+ * 겹쳐 시작되면 "장바구니가 비어 있습니다"(400)가 나는 레이스 컨디션이
+ * 있었다 (docs/perf/001-baseline.md). 무작위 선택 + 넉넉한 계정 수로
+ * 같은 계정이 동시에 쓰일 확률을 낮춘다.
  */
 export function purchaseFlow(data) {
   const users = data && data.users ? data.users : [];
