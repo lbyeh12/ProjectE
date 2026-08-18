@@ -1,0 +1,163 @@
+name: dbt CI
+
+# dbt 모델(SQL) 변경이 실제로 컴파일/실행되고, schema.yml의 데이터
+# 품질 테스트를 통과하는지 PR마다 검증한다 (adrs/0013-dbt-adoption.md).
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dbt/**"
+      - ".github/workflows/dbt-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "dbt/**"
+
+jobs:
+  dbt-check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: projecte_dbt_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # dbt는 Airflow와 마찬가지로 별도 환경에 설치한다(로컬/Airflow
+      # 이미지와 동일한 이유 - 의존성 충돌 회피, airflow/Dockerfile 참고).
+      - name: dbt 설치
+        run: pip install "dbt-postgres>=1.8,<1.9"
+
+      # dbt 모델이 참조하는 원본 테이블(raw_events, products, users,
+      # quarantine_events)을 CI에서만 쓰는 최소 스키마 + 씨드 데이터로
+      # 만든다. 실제 애플리케이션 스키마 전체를 세팅하는 대신, dbt가
+      # source로 선언한 컬럼만 채워서 가볍게 구성했다.
+      - name: 씨드 스키마/데이터 생성
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d projecte_dbt_ci <<'SQL'
+          CREATE TABLE raw_events (
+              id BIGINT PRIMARY KEY,
+              user_id INTEGER,
+              event_type TEXT NOT NULL,
+              product_id TEXT,
+              price DOUBLE PRECISION,
+              timestamp TIMESTAMP NOT NULL
+          );
+          CREATE TABLE products (
+              product_id TEXT PRIMARY KEY,
+              description TEXT,
+              price DOUBLE PRECISION
+          );
+          CREATE TABLE users (
+              user_id INTEGER PRIMARY KEY,
+              country TEXT
+          );
+          CREATE TABLE quarantine_events (
+              source_event_id BIGINT PRIMARY KEY
+          );
+
+          INSERT INTO products VALUES ('85123A', 'WHITE HANGING HEART T-LIGHT HOLDER', 6000);
+          INSERT INTO users VALUES (17850, 'United Kingdom');
+          INSERT INTO raw_events VALUES
+              (1, 17850, 'view', '85123A', 6000, now()),
+              (2, 17850, 'purchase', '85123A', 6000, now());
+          SQL
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps --profiles-dir .
+
+      - name: dbt run (최초)
+        working-directory: dbt
+        env:
+          DBT_DB_HOST: localhost
+          DBT_DB_PORT: "5432"
+          DBT_DB_USER: postgres
+          DBT_DB_PASSWORD: postgres
+          DBT_DB_NAME: projecte_dbt_ci
+        run: dbt run --profiles-dir .
+
+      # SCD2 회귀 테스트 (adrs/0008, adrs/0013). schema.yml의 정적
+      # 테스트(unique/not_null 등)는 "지금 상태가 맞는지"만 보고,
+      # "속성이 바뀌었을 때 실제로 만료 처리가 되는지"는 검증하지
+      # 못한다. 원본을 바꾸고 dbt를 다시 돌려서, 옛 버전이 정확히
+      # 만료되고 새 버전이 정확히 반영되는지를 매 PR마다 자동으로
+      # 확인한다 - 이 로직이 나중에 실수로 깨지는 걸 막는 회귀 테스트.
+      - name: SCD2 회귀 테스트 - 상품 가격 변경
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d projecte_dbt_ci -c \
+            "UPDATE products SET price = 9999 WHERE product_id = '85123A';"
+
+      - name: dbt run (SCD2 변경분 반영)
+        working-directory: dbt
+        env:
+          DBT_DB_HOST: localhost
+          DBT_DB_PORT: "5432"
+          DBT_DB_USER: postgres
+          DBT_DB_PASSWORD: postgres
+          DBT_DB_NAME: projecte_dbt_ci
+        run: dbt run --profiles-dir . --select dim_product
+
+      - name: SCD2 회귀 테스트 - 만료/신규 버전 검증
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d projecte_dbt_ci <<'SQL'
+          DO $$
+          DECLARE
+            current_count INT;
+            expired_count INT;
+            new_price DOUBLE PRECISION;
+          BEGIN
+            SELECT count(*) INTO current_count
+              FROM dim_product WHERE product_id = '85123A' AND is_current = true;
+            SELECT count(*) INTO expired_count
+              FROM dim_product WHERE product_id = '85123A' AND is_current = false;
+            SELECT price INTO new_price
+              FROM dim_product WHERE product_id = '85123A' AND is_current = true;
+
+            IF current_count != 1 THEN
+              RAISE EXCEPTION 'SCD2 검증 실패: is_current=true 행 %개 (기대: 1)', current_count;
+            END IF;
+            IF expired_count != 1 THEN
+              RAISE EXCEPTION 'SCD2 검증 실패: 만료(is_current=false) 행 %개 (기대: 1)', expired_count;
+            END IF;
+            IF new_price != 9999 THEN
+              RAISE EXCEPTION 'SCD2 검증 실패: 현재 버전 가격이 %인데 9999여야 함', new_price;
+            END IF;
+
+            RAISE NOTICE 'SCD2 검증 통과: 옛 버전 만료 + 새 버전 반영 확인됨';
+          END $$;
+          SQL
+
+      - name: dbt test
+        working-directory: dbt
+        env:
+          DBT_DB_HOST: localhost
+          DBT_DB_PORT: "5432"
+          DBT_DB_USER: postgres
+          DBT_DB_PASSWORD: postgres
+          DBT_DB_NAME: projecte_dbt_ci
+        run: dbt test --profiles-dir .

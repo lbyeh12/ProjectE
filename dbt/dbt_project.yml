@@ -1,0 +1,27 @@
+name: projecte_dbt
+version: "1.0.0"
+config-version: 2
+
+profile: projecte
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+# dbt가 실행 중 쓰는 target/(컴파일된 SQL, 실행 결과)와
+# dbt_packages/(패키지 다운로드)를, 바인드 마운트된 프로젝트
+# 디렉토리(./dbt -> /opt/dbt) 밖의 컨테이너 로컬 경로로 지정한다.
+# venv를 /opt 대신 /home/airflow에 둔 것과 같은 이유(airflow/
+# Dockerfile 참고) - 바인드 마운트 디렉토리는 호스트 소유권을 그대로
+# 가져와서, 컨테이너 안 airflow 사용자가 그 안에 새로 쓰기를 시도하면
+# 권한 문제가 생길 수 있다. 모델(.sql/.yml) 파일은 읽기만 하면
+# 되므로 이 경로는 계속 마운트된 곳을 그대로 쓴다.
+target-path: "/home/airflow/dbt-target"
+log-path: "/home/airflow/dbt-logs"
+packages-install-path: "/home/airflow/dbt-target/dbt_packages"
+
+models:
+  projecte_dbt:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

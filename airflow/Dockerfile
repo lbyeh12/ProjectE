@@ -27,3 +27,25 @@ RUN pip install --no-cache-dir requests
 # provider/hook 계층을 통해 일관되게 다룬다. pyarrow는 pandas가
 # Parquet 파일을 쓰기 위해 필요하다.
 RUN pip install --no-cache-dir apache-airflow-providers-amazon pyarrow
+
+# dbt (adrs/0013-dbt-adoption.md).
+# dbt-core는 Jinja2 등 의존성 버전을 Airflow 자체와 다르게 요구하는
+# 경우가 실무에서 흔히 보고된다 - 이미 GE 버전 충돌(numpy)을 겪었던
+#것과 같은 종류의 위험이다. Airflow의 파이썬 환경과 아예 공유하지
+# 않도록 별도 가상환경에 설치해서, 충돌 가능성 자체를 원천 차단한다.
+# DAG에서는 dbt를 PATH의 "dbt"가 아니라 이 venv 경로로 직접 호출한다.
+#
+# 경로를 /opt가 아니라 /home/airflow(컨테이너의 airflow 사용자 홈)
+# 밑에 두는 이유: /opt는 root 소유라 비root 사용자(이 이미지가
+# pip install을 실행하는 airflow 사용자)가 새 폴더를 만들 권한이
+# 없어 "Permission denied"로 빌드가 실패했다. 홈 디렉토리는 그
+# 사용자가 항상 쓰기 권한을 갖는 경로라 이 문제가 없다.
+# RUN python -m venv /home/airflow/dbt-venv && \
+# dbt-postgres만 버전을 고정했더니, pip가 dbt-core는 훨씬 최신인
+# 2.0.0-beta.1을 끌어와서(dbt-postgres의 내부 의존성 제약이 dbt-core
+# 상한을 안 걸어둔 것으로 보임) dbt_project.yml의 log-path 설정이
+# "dbt1005: 'log-path' cannot be specified" 에러로 실패했다.
+# (2.0 베타에서 설정 스펙이 바뀐 것으로 보인다.) dbt-core도 같이
+# 명시적으로 고정해서, pip가 절대 1.9 이상을 고르지 못하게 한다.
+RUN python -m venv /home/airflow/dbt-venv && \
+    /home/airflow/dbt-venv/bin/pip install --no-cache-dir "dbt-core>=1.8,<1.9" "dbt-postgres>=1.8,<1.9"

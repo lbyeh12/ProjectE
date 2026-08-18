@@ -1,0 +1,64 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: 날짜 차원 (SCD 대상 아님)
+    columns:
+      - name: date_key
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_product
+    description: 상품 차원 (Type 2 SCD)
+    columns:
+      - name: product_key
+        tests:
+          - unique
+          - not_null
+      - name: price
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+  - name: dim_user
+    description: 사용자 차원 (Type 2 SCD)
+    columns:
+      - name: user_key
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_events
+    description: 사실 테이블 (전체 이벤트, raw_events 1건당 1행)
+    columns:
+      - name: event_key
+        tests:
+          - unique
+          - not_null
+      - name: source_event_id
+        tests:
+          - unique
+          - not_null
+      - name: date_key
+        tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: revenue
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: event_type
+        tests:
+          - accepted_values:
+              values:
+                - view
+                - search
+                - add_to_cart
+                - purchase
+                - refund
+                - signup
+                - login

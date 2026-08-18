@@ -1,0 +1,12 @@
+projecte:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_DB_HOST', 'postgres') }}"
+      port: "{{ env_var('DBT_DB_PORT', '5432') | as_number }}"
+      user: "{{ env_var('DBT_DB_USER', 'postgres') }}"
+      password: "{{ env_var('DBT_DB_PASSWORD', 'postgres') }}"
+      dbname: "{{ env_var('DBT_DB_NAME', 'projecte') }}"
+      schema: public
+      threads: 4

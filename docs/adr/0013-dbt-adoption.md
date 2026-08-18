@@ -68,11 +68,7 @@ dbt/
   으로 표현하기 쉬운 복잡한 조건부 로직은 dbt의 Jinja 템플릿으로
   옮기면 오히려 가독성이 떨어질 수 있어, 모든 변환을 dbt로 옮기지는
   않는다(예: quarantine 판정처럼 pandas가 더 적합한 로직은 유지).
-- **후속 작업**: Great Expectations 검증 규칙 중 dbt test로 대체
-  가능한 부분 정리. SCD2 동작(만료+신규 버전 생성)은 schema.yml의
-  정적 테스트로 검증 안 되므로, CI(`dbt-ci.yml`)에 원본 변경 →
-  재실행 → 결과 assertion 형태의 회귀 테스트를 추가해 매 PR마다
-  자동 검증되도록 함.
+
 
 ## Related
 
