@@ -44,7 +44,7 @@ jobs:
       # dbt는 Airflow와 마찬가지로 별도 환경에 설치한다(로컬/Airflow
       # 이미지와 동일한 이유 - 의존성 충돌 회피, airflow/Dockerfile 참고).
       - name: dbt 설치
-        run: pip install "dbt-postgres>=1.8,<1.9"
+        run: pip install "dbt-core>=1.8,<1.9" "dbt-postgres>=1.8,<1.9"
 
       # dbt 모델이 참조하는 원본 테이블(raw_events, products, users,
       # quarantine_events)을 CI에서만 쓰는 최소 스키마 + 씨드 데이터로

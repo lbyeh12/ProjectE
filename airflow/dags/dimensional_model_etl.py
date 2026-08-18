@@ -46,6 +46,20 @@ from dag_common import DEFAULT_ARGS, notify_failure_slack
 DBT_PROJECT_DIR = "/opt/dbt"
 DBT_BIN = "/home/airflow/dbt-venv/bin/dbt"
 
+# 바인드 마운트된 /opt/dbt 안에 dbt가 target/logs/dbt_packages를 쓰려고
+# 하면 권한 문제가 생길 수 있어(venv를 /opt 밖에 둔 것과 같은 이유),
+# 컨테이너 로컬 경로로 지정한다. dbt_project.yml에는 안 넣고 명령 앞에
+# 인라인으로 지정하는 이유는 dbt/dbt_project.yml 참고. BashOperator의
+# env= 파라미터 대신 인라인 방식을 쓰는 이유: env=는 프로세스 환경을
+# 통째로 교체할 수 있어서, docker-compose에서 설정한 DBT_DB_HOST 등
+# (dbt profiles.yml이 필요로 하는 DB 접속 정보)이 사라질 위험이 있다.
+# 인라인으로 붙이면 기존 환경을 그대로 물려받으면서 이 값들만 추가된다.
+DBT_ENV_PREFIX = (
+    "DBT_TARGET_PATH=/home/airflow/dbt-target "
+    "DBT_LOG_PATH=/home/airflow/dbt-logs "
+    "DBT_PACKAGES_INSTALL_PATH=/home/airflow/dbt-target/dbt_packages"
+)
+
 with DAG(
     dag_id="dimensional_model_etl",
     description="raw_events -> Star Schema(dim_date/product/user, fact_events) 변환 (dbt)",
@@ -59,17 +73,17 @@ with DAG(
 
     dbt_deps = BashOperator(
         task_id="dbt_deps",
-        bash_command=f"cd {DBT_PROJECT_DIR} && {DBT_BIN} deps --profiles-dir .",
+        bash_command=f"cd {DBT_PROJECT_DIR} && {DBT_ENV_PREFIX} {DBT_BIN} deps --profiles-dir .",
     )
 
     dbt_run = BashOperator(
         task_id="dbt_run",
-        bash_command=f"cd {DBT_PROJECT_DIR} && {DBT_BIN} run --profiles-dir .",
+        bash_command=f"cd {DBT_PROJECT_DIR} && {DBT_ENV_PREFIX} {DBT_BIN} run --profiles-dir .",
     )
 
     dbt_test = BashOperator(
         task_id="dbt_test",
-        bash_command=f"cd {DBT_PROJECT_DIR} && {DBT_BIN} test --profiles-dir .",
+        bash_command=f"cd {DBT_PROJECT_DIR} && {DBT_ENV_PREFIX} {DBT_BIN} test --profiles-dir .",
     )
 
     # 이 DAG이 끝나면 export_to_s3를 자동으로 실행시킨다.
