@@ -107,13 +107,11 @@ def checkout(
     재고가 하나라도 부족하면 전체 구매를 취소한다 (원자성 원칙 —
     "일부만 성공"하는 상태를 만들지 않는다).
 
-    멱등성 (adrs/0006-idempotency-store-selection.md): 커밋은 성공했지만
-    응답이 클라이언트에 전달되기 전에 연결이 끊기면(docs/perf/006에서
-    실측), 사용자가 재시도할 때 중복 구매가 될 수 있다. 클라이언트가
-    Idempotency-Key 헤더를 보내면, 같은 키로 이미 처리된 요청은 재실행
-    하지 않고 이전 결과를 그대로 반환한다. 헤더가 없으면(예: 내부
-    테스트 스크립트) 예전과 동일하게 매번 새로 처리한다 - 기존 호출자와
-    호환성을 유지하기 위해 필수로 강제하지 않는다.
+    멱등성 (adrs/0006-idempotency-store-selection.md): 커밋 후 응답
+    전달 전에 연결이 끊기면 재시도가 중복 구매로 이어질 수 있다.
+    클라이언트가 Idempotency-Key 헤더를 보내면, 같은 키로 이미 처리된
+    요청은 재실행하지 않고 이전 결과를 그대로 반환한다. 헤더가 없으면
+    기존 호출자와의 호환을 위해 매번 새로 처리한다.
     """
     # Rate Limiting (adrs/0007-rate-limiting.md): 한정 재고에 봇이
     # 반복적으로 구매를 시도하는 걸 방어한다. 멱등성 검사(Redis 조회)
@@ -214,11 +212,8 @@ def _do_checkout(current_user: User, db: Session) -> PurchaseResult:
         product.stock -= item.quantity
         product.total_purchase_count = (product.total_purchase_count or 0) + item.quantity
 
-        # 수량만큼 purchase 이벤트를 각각 기록 (이벤트 스키마는 단일 상품 단위).
-        # Kafka로 직접 안 보내고 outbox에 기록한다 - 재고 차감과 같은
-        # 트랜잭션에 포함되어, 이 트랜잭션이 롤백되면 outbox 기록도
-        # 함께 사라진다. 이게 adrs/0005 에서 해결하려는 이중 쓰기
-        # 문제(Kafka는 나갔는데 재고는 롤백되는 것)의 핵심 수정이다.
+        # 수량만큼 purchase 이벤트를 각각 기록. outbox에 기록해 재고
+        # 차감과 같은 트랜잭션으로 묶는다 (adrs/0005-outbox-pattern.md).
         for _ in range(item.quantity):
             payload = {
                 "user_id": current_user.user_id,
@@ -239,21 +234,12 @@ def _do_checkout(current_user: User, db: Session) -> PurchaseResult:
     for item in cart_items:
         db.delete(item)
 
-    # 장애 주입 지점 (테스트 전용, adrs/0004-inventory-concurrency-control.md,
-    # adrs/0005-outbox-pattern.md 검증용). outbox 도입 전에는 이 지점에서
-    # 죽으면 "Kafka로 이미 보낸 이벤트 + 롤백된 재고"라는 이중 쓰기
-    # 불일치가 발생했다 (docs/perf/006-inventory-race.md 에서 실측 확인).
-    # outbox 도입 후에는 재고 차감 + outbox 기록이 같은 트랜잭션이라,
-    # 여기서 죽어도 둘 다 롤백되어 안전하다 - 이 지점을 그대로 남겨서
-    # 재검증할 수 있게 한다. 평소에는 이 플래그 파일이 없어서 영향이
-    # 전혀 없다.
+    # 장애 주입 지점 (테스트 전용, docs/perf/006-inventory-race.md 재검증용).
+    # 재고 차감 + outbox 기록이 같은 트랜잭션이므로, 여기서 죽어도 둘 다
+    # 롤백되어 안전하다. 플래그 파일이 없으면 평소엔 영향 없다.
     #
-    # 참고: 이 지점에서 os._exit()로 죽으면 Python 코드가 더 이상
-    # 실행되지 않으므로, checkout()의 try/except도 못 돌고 Redis의
-    # "처리 중" 표시가 그대로 남는다. 이 경우 재시도는
-    # idempotency_ttl_seconds(기본 600초)가 지나야 다시 시도할 수
-    # 있다 - 실제 서버 크래시라면 재시작에 걸리는 시간과 비슷한
-    # 수준이라 감수 가능한 한계로 본다.
+    # 참고: os._exit()로 죽으면 try/except도 못 돌아 Redis의 "처리 중"
+    # 표시가 idempotency_ttl_seconds(기본 600초)가 지날 때까지 남는다.
     chaos_flag_path = "/tmp/chaos_crash_before_commit"
     if os.path.exists(chaos_flag_path):
         os.remove(chaos_flag_path)

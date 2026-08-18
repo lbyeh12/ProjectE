@@ -26,13 +26,11 @@ SELECT
 FROM products
 WHERE product_id = :product_id;
 
--- 2-2. 이 상품에 대해 실제로 커밋까지 완료된 구매가 몇 건인지.
---      raw_events 는 Kafka -> Spark 를 거쳐 쌓이므로, 이 값은 사실
---      "DB에 반영된 결과"가 아니라 "Kafka로 전송된 이벤트 수"에 더
---      가깝다 (checkout()에서 Kafka 전송이 db.commit() 이전에 일어나기
---      때문 - 시나리오 3에서 이 차이 자체를 검증 대상으로 삼는다).
---      시나리오 2 관점에서는 우선 "재고 차감량과 대략 맞는지" 정도의
---      1차 확인으로 참고한다.
+-- 2-2. raw_events 기준 purchase 이벤트 수 (Kafka -> Spark 를 거쳐 쌓임).
+--      checkout()이 Kafka 전송을 commit 이전에 하므로, 이 값은 "DB
+--      반영 결과"보다 "Kafka로 전송된 이벤트 수"에 가깝다 (시나리오
+--      3에서 이 차이 자체를 검증). 시나리오 2 관점에서는 재고
+--      차감량과 대략 맞는지 참고만 한다.
 SELECT count(*) AS purchase_event_count
 FROM raw_events
 WHERE event_type = 'purchase' AND product_id = :product_id;
@@ -61,17 +59,11 @@ WHERE product_id = :product_id;
 -- 사이의 정합성. "이중 쓰기 문제"가 실제로 재현되는지 확인.
 -- ============================================================
 
--- 3-1. DB 기준 판매량(재고 감소분)과, Kafka를 거쳐 Spark가 집계한
---      product_stats 의 구매 수를 나란히 비교한다.
---      checkout()의 현재 구현은 Kafka 전송을 db.commit() "이전"에
---      하므로, 이론적으로 두 가지 불일치가 모두 가능하다:
---        (a) Kafka 전송 성공 후 commit 전에 서버가 죽음
---            -> product_stats 에는 구매가 잡혔는데 실제 DB 재고는
---               안 줄어든 상태 (product_stats 쪼이 더 큼)
---        (b) 반대로 commit은 됐는데 Kafka 전송이 유실됨
---            -> DB 재고는 줄었는데 product_stats에는 안 잡힘
---               (product_stats 가 더 작음)
---      아래 두 값이 정확히 일치해야 "정합성이 지켜졌다"고 볼 수 있다.
+-- 3-1. DB 기준 판매량(재고 감소분)과, Kafka -> Spark가 집계한
+--      product_stats 의 구매 수를 비교한다. checkout()이 Kafka 전송을
+--      commit "이전"에 하므로, 두 값이 어긋날 수 있다 (자세한 이론은
+--      docs/perf/006-inventory-race.md 참고). 아래 두 값이 정확히
+--      일치해야 정합성이 지켜진 것이다.
 SELECT
     (:initial_stock - p.stock) AS db_based_purchase_count,
     COALESCE(ps.purchase_count, 0) AS kafka_based_purchase_count,

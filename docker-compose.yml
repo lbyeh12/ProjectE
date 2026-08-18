@@ -146,6 +146,13 @@ services:
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
       AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-ap-northeast-2}"
       S3_BUCKET_NAME: "${S3_BUCKET_NAME:-projecte-data-lake}"
+      # dbt profiles.yml (adrs/0013)이 참조하는 접속 정보. PostgresHook이
+      # 쓰는 것과 같은 DB(postgres 서비스)를 가리킨다.
+      DBT_DB_HOST: postgres
+      DBT_DB_PORT: "5432"
+      DBT_DB_USER: postgres
+      DBT_DB_PASSWORD: postgres
+      DBT_DB_NAME: projecte
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -183,6 +190,10 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
+      # dbt 프로젝트 (adrs/0013). LocalExecutor라 BashOperator로 실행되는
+      # dbt 명령은 scheduler 컨테이너 안에서 직접 돈다 - 그래서 dag-processor가
+      # 아니라 여기(scheduler)에 마운트한다.
+      - ./dbt:/opt/dbt
     command: scheduler
     restart: unless-stopped
 

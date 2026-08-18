@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: projecte
+    schema: public
+    tables:
+      - name: raw_events
+      - name: products
+      - name: users
+      - name: quarantine_events

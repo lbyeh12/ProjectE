@@ -3,9 +3,8 @@
 #
 # 재고 경쟁 시나리오(특히 시나리오 3, DB-Kafka 정합성 검증)를 실행하기
 # 전에, 이전 테스트/사용의 흔적을 전부 지운다. 지우지 않으면
-# raw_events/product_stats 에 과거 누적치가 그대로 남아있어서, "이번
-# 테스트로 발생한 이벤트 수"를 정확히 셀 수 없다 (실제로 이 문제로
-# mismatch가 -1142 같은 비정상적인 큰 값으로 나온 적이 있다).
+# raw_events/product_stats 에 과거 누적치가 남아있어 "이번 테스트로
+# 발생한 이벤트 수"를 정확히 셀 수 없다.
 #
 # 지우는 대상:
 #   1. cart_items       - 모든 사용자 장바구니
@@ -41,12 +40,9 @@ docker exec projecte-kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 --delete --topic user-events || \
   echo "  (토픽이 없었거나 이미 삭제됨 - 계속 진행)"
 
-# Kafka의 토픽 삭제는 비동기라, 삭제 명령이 끝났다고 즉시 목록에서
-# 사라지는 게 보장되지 않는다. 고정 시간(sleep 2)만 기다리면 타이밍에
-# 따라 재생성이 "삭제 진행 중" 상태와 겹쳐 실패/누락될 수 있어서 -
-# 실제로 재생성이 안 된 채 넘어가 Spark가 UnknownTopicOrPartitionException
-# 으로 죽는 걸 겪었다 - 토픽이 실제로 목록에서 사라질 때까지 최대
-# 15초간 반복 확인한다.
+# Kafka의 토픽 삭제는 비동기라 삭제 명령이 끝났다고 즉시 목록에서
+# 사라지는 게 보장되지 않는다. 삭제 진행 중에 재생성하면 실패/누락될
+# 수 있으므로, 토픽이 실제로 목록에서 사라질 때까지 최대 15초간 반복 확인한다.
 echo "  토픽이 실제로 삭제될 때까지 대기 중..."
 for i in $(seq 1 15); do
   if ! docker exec projecte-kafka /opt/kafka/bin/kafka-topics.sh \

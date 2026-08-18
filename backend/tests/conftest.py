@@ -73,18 +73,13 @@ def _isolate_redis(client):
     """
     Redis는 DB 트랜잭션 롤백(위 db_session fixture)의 영향을 받지 않으므로,
     멱등성 키/Rate Limit 카운터가 테스트 함수 사이에 그대로 남아 서로
-    간섭할 수 있다 (예: 로그인 테스트를 여러 번 하면 같은 user_id의
-    Rate Limit 카운터가 쌓여 무관한 다른 테스트가 429를 받는 문제).
-    매 테스트 전후로 비워서 격리한다.
+    간섭할 수 있다. 매 테스트 전후로 비워서 격리한다.
 
-    client 를 인자로 받아 의존성을 명시하는 게 중요하다: pytest는
-    fixture teardown을 설정의 역순으로 실행하는데, 이 의존성이 없으면
-    client fixture(앱 종료 시 redis_client.close_client() 호출 ->
-    _client = None)가 먼저 정리된 뒤에 이 fixture의 flush_all() 이
-    실행되어, "_client가 없다"며 조용히 아무것도 안 지우는 상태가 된다
-    (실제로 이 버그로 여러 테스트가 서로 간섭하는 걸 확인했다).
-    client에 의존하게 하면 teardown이 반드시 "flush 먼저, 연결 종료는
-    나중"의 순서로 실행된다.
+    client 를 인자로 받아 의존성을 명시해야 한다: pytest는 fixture
+    teardown을 설정의 역순으로 실행하므로, 이 의존성이 없으면 client
+    fixture가 Redis 연결을 먼저 끊어버려 flush_all()이 조용히 아무것도
+    못 지우게 된다. client에 의존하게 하면 "flush 먼저, 연결 종료는
+    나중" 순서가 보장된다.
     """
     redis_client.flush_all()
     yield
