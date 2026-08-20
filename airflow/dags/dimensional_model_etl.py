@@ -92,6 +92,9 @@ with DAG(
         trigger_dag_id="export_to_s3",
         logical_date="{{ logical_date }}",
         wait_for_completion=False,
+        # 백필 시 이미 같은 logical_date의 실행이 있으면 에러 대신
+        # 리셋하고 재트리거 (data_quality_check.py와 동일한 이유).
+        reset_dag_run=True,
     )
 
     dbt_deps >> dbt_run >> dbt_test >> trigger_next
