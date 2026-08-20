@@ -105,3 +105,14 @@ Thumbs.db
 *.log
 *.tmp
 .ipynb_checkpoints/
+
+# Terraform (adrs/0014)
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# dbt (adrs/0013)
+dbt/dbt_packages/
+dbt/target/
+dbt/logs/
